@@ -2,42 +2,75 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#000000" />
-    <meta
-      name="description"
-      content="Web site created using create-react-app"
-    />
-    <link rel="apple-touch-icon" href="logo192.png" />
-    <!--
-      manifest.json provides metadata used when your web app is installed on a
-      user's mobile device or desktop. See https://developers.google.com/web/fundamentals/web-app-manifest/
-    -->
-    <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
-    <!--
-      Notice the use of %PUBLIC_URL% in the tags above.
-      It will be replaced with the URL of the `public` folder during the build.
-      Only files inside the `public` folder can be referenced from the HTML.
-
-      Unlike "/favicon.ico" or "favicon.ico", "%PUBLIC_URL%/favicon.ico" will
-      work correctly both with client-side routing and a non-root public URL.
-      Learn how to configure a non-root public URL by running `npm run build`.
-    -->
-    <title>React App</title>
+    <title>PG6201</title>
+    <script src="%PUBLIC_URL%/three.min.js"></script>
   </head>
   <body>
     <noscript>You need to enable JavaScript to run this app.</noscript>
     <div id="root"></div>
-    <!--
-      This HTML file is a template.
-      If you open it directly in the browser, you will see an empty page.
-
-      You can add webfonts, meta tags, or analytics to this file.
-      The build step will place the bundled scripts into the <body> tag.
-
-      To begin the development, run `npm start` or `yarn start`.
-      To create a production bundle, use `npm run build` or `yarn build`.
-    -->
+    <script type="x-shader/x-vertex" id="ParticleVertexShader">
+      uniform mat4 uTest;
+      layout(location=1) in vec3 velocity;
+      layout(location=2) in float duration;
+      out vec3 vPosition;
+      out vec3 vVelocity;
+      out float vDuration;
+      out float vColor;
+      vec3 Hash33(vec3 p, float l) {
+        p = fract(p*vec3(123.82, 439.11, 23.7));
+        p += dot(p, p+82.23);
+        float r0 = fract(p.x*p.y) * 3.1415 * 2.0;
+        float r1 = fract((p.y-0.5) * (p.z - 0.5)) * 3.1415;
+        float r2 = fract(p.x + p.z);
+        r2 = (1.0 - pow(r2, 5.0)) * l;
+        float x = r2 * sin(r0) * cos(r1);
+        float y = r2 * sin(r0) * sin(r1);
+        float z = r2 * cos(r0);
+        return vec3(x, y, z);
+      }
+      void main() {
+        /*
+        float uMinDuration = 1.0;
+        float uMaxDuration = 1.5;
+        float uDeltaTime = 0.01;
+        vec3 uOrigin = vec3(0.0);
+        if (duration <= 0.0) {
+          vec3 nv = Hash33(position, 2.0);
+          vPosition = nv;
+          vVelocity = normalize(position - vPosition) * 0.1;
+          vDuration = uMinDuration + (uMaxDuration - uMinDuration) * normalize(nv).z;
+        } else {
+          float mass = 0.005;
+          vec3 delta = position * -1.0;
+          float distance = max(0.01, dot(delta, delta));
+          vec3 acceleration = mass * normalize(delta);
+          vPosition = position + velocity * uDeltaTime;
+          vVelocity = velocity + acceleration * uDeltaTime;
+          vDuration = duration - uDeltaTime;
+        }
+        float l = 1.0 - clamp(length(cameraPosition - position) / length(cameraPosition), 0.0, 1.0);
+        float g = 0.5 - abs(min(1.0, duration / uMinDuration) - 0.5);
+        vColor = g;
+        */
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        vPosition = position;
+        vVelocity = velocity;
+        vDuration = duration;
+        gl_PointSize = 5.0;
+        vec4 X = uTest * vec4(position, 1.0);
+        vec3 Y = X.xyz / X.w;
+        // vec3 Y = X.xyz;
+        float C = 0.05;
+        if (Y.x > -0.99 && Y.x < 0.99 && Y.y > -0.99 && Y.y < 0.99) C = 1.0;
+        vColor = C;
+      }
+    </script>
+    <script type="x-shader/x-fragment" id="ParticleFragmentShader">
+      in float vColor;
+      void main() {
+        gl_FragColor = vec4(vColor, vColor, vColor, 1.0);
+      }
+    </script>
   </body>
 </html>
