@@ -1,16 +1,14 @@
 import React, { useRef, useEffect, useContext } from 'react';
 import { mat4, quat, vec3 } from 'gl-matrix';
 import { Context } from './deps/Options';
+import monkeyLowpoly from './deps/models/suzanneLowpoly.json';
 import * as utils from './deps/utils';
 import * as T from './deps/three.module';
-
-const PARTICLE_NUM = Math.pow(2, 16);
-const PARTICLE_SIZE = '5.0';
 
 export default () => {
   const canvas = useRef();
   const app = useRef({}).current;
-  const { update, state:{ camera, light }, proxy } = useContext(Context);
+  const { update, state:{ camera, particle, light }, proxy } = useContext(Context);
 
   useEffect(function InitializeThreeJSApplication() {
     const gl = app.gl = canvas.current.getContext('webgl2');
@@ -19,23 +17,45 @@ export default () => {
     gl.viewport(0, 0, window.innerWidth, window.innerHeight);
     gl.clearColor(0.3, 0.4, 0.6, 1.0);
     gl.enable(gl.CULL_FACE);
-    gl.enable(gl.DEPTH_TEST);
     gl.enable(gl.BLEND);
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    // gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
-
     app.projection = mat4.create();
     app.view = mat4.create();
     app.light = mat4.create();
-    app.particles = createParticles(gl)
     app.rotation = quat.copy([], proxy.camera.rotation.read());
     app.offset = proxy.camera.offset.read();
+    app.uniform = utils.createProgramUniformHelper(gl);
+    app.particle = {
+      index: 0,
+      count: null,
+      programs: null,
+      buffers: null,
+    };
+    app.monkey = {
+      mesh: utils.createGenericMesh(gl, monkeyLowpoly),
+      program: null,
+    };
   }, [app, canvas, proxy]);
 
   useEffect(function OptionsCameraChange() {
     app.projection = mat4.perspective(app.projection, camera.fov * Math.PI/180, window.innerWidth/window.innerHeight, 0.1, 100);
-    // quat.copy(app.rotationTarget, camera.rotation);
   }, [app, camera]);
+
+  useEffect(function OptionsParticleChange() {
+    if (app.particle.programs)
+      app.particle.programs.dispose();
+    app.particle.programs = createParticlePrograms(app.gl, particle);
+    if (app.particle.count !== particle.count) {
+      if (app.particle.buffer)
+        app.particle.buffers.dispose();
+      app.particle.buffers = createParticleBuffers(app.gl, particle);
+      app.particle.count = particle.count;
+    }
+    app.gl.useProgram(app.particle.programs.update);
+    app.uniform(app.particle.programs.update, "uMinDuration").uniform1f(particle.minDuration);
+    app.uniform(app.particle.programs.update, "uMaxDuration").uniform1f(particle.maxDuration);
+  }, [app, particle]);
 
   useEffect(function OptionsLightChange() {
     mat4.identity(app.light);
@@ -74,33 +94,30 @@ export default () => {
     const position = [];
     const upwards = [];
     let request = requestAnimationFrame(function frame() {
-      const { gl, particles } = app;
-      // Camera orbitals
+      const { gl, particle } = app;
+      // Update
       app.offset = utils.lerp(app.offset, camera.offset, 0.05);
       quat.slerp(app.rotation, app.rotation, camera.rotation, 0.05);
       vec3.transformQuat(position, [0, 0, app.offset], app.rotation);
       vec3.transformQuat(upwards, [0, 1, 0], app.rotation);
       mat4.lookAt(app.view, position, [0, 0, 0], upwards);
-      // Render particles
+      // Render
       gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-      // Update particles
-      // gl.enable(gl.SAMPLE_ALPHA_TO_COVERAGE);
-      gl.useProgram(particles.updateProgram);
-      gl.uniformMatrix4fv(particles.updateProgram.uProjection, false, app.projection);
-      gl.uniformMatrix4fv(particles.updateProgram.uView, false, app.view);
-      gl.uniformMatrix4fv(particles.updateProgram.uLight, false, app.light);
-      gl.bindVertexArray(particles.updateArrays[particles.index]);
-      gl.bindTransformFeedback(gl.TRANSFORM_FEEDBACK, particles.feedbackBuffers[particles.index]);
+      if (proxy.particle.depthTest.read()) {
+        gl.enable(gl.DEPTH_TEST);
+      } else {
+        gl.disable(gl.DEPTH_TEST);
+      }
+      gl.useProgram(particle.programs.update);
+      app.uniform(particle.programs.update, "uProjection").uniformMatrix4fv(false, app.projection);
+      app.uniform(particle.programs.update, "uView").uniformMatrix4fv(false, app.view);
+      app.uniform(particle.programs.update, "uLight").uniformMatrix4fv(false, app.light);
+      gl.bindVertexArray(particle.buffers.updateArrays[particle.index]);
+      gl.bindTransformFeedback(gl.TRANSFORM_FEEDBACK, particle.buffers.feedback[particle.index]);
       gl.beginTransformFeedback(gl.POINTS);
-      gl.drawArrays(gl.POINTS, 0, PARTICLE_NUM);
+      gl.drawArrays(gl.POINTS, 0, particle.count);
       gl.endTransformFeedback();
-      // Render particles
-      // gl.useProgram(particles.renderProgram);
-      // gl.uniformMatrix4fv(particles.renderProgram.uProjection, false, app.projection);
-      // gl.uniformMatrix4fv(particles.renderProgram.uView, false, app.view);
-      // gl.bindVertexArray(particles.renderArrays[particles.index]);
-      // gl.drawElementsInstanced(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 0, PARTICLE_NUM);
-      particles.index = (particles.index + 1) % 2;
+      particle.index = (particle.index + 1) % 2;
       // Cleanup
       gl.bindVertexArray(null);
       gl.bindBuffer(gl.ARRAY_BUFFER, null);
@@ -109,48 +126,52 @@ export default () => {
       request = requestAnimationFrame(frame);
     });
     return () => window.cancelAnimationFrame(request);
-  }, [app, camera]);
+  }, [app, camera, proxy]);
 
   return <canvas ref={canvas} />;
 };
 
-const createParticles = gl => {
-  // Create the programs
-  const updateProgram = utils.createProgram(gl, VertexUpdateSource, FragmentUpdateSource);
-  const renderProgram = utils.createProgram(gl, VertexRenderSource, FragmentRenderSource);
-  gl.transformFeedbackVaryings(updateProgram, ["vPosition", "vVelocity", "vDuration"], gl.SEPARATE_ATTRIBS);
+const createParticlePrograms = (gl, options) => {
+  const updateProgram = utils.createProgram(gl, VertexUpdateSource(options), FragmentUpdateSource(options));
+  const renderProgram = utils.createProgram(gl, VertexRenderSource(options), FragmentRenderSource(options));
+  gl.transformFeedbackVaryings(updateProgram, ["vPosition", "vVelocity", "vDuration", "vLapsed"], gl.SEPARATE_ATTRIBS);
   utils.linkProgram(gl, updateProgram);
-  updateProgram.uProjection = gl.getUniformLocation(updateProgram, "uProjection");
-  updateProgram.uView = gl.getUniformLocation(updateProgram, "uView");
-  updateProgram.uLight = gl.getUniformLocation(updateProgram, "uLight");
   utils.linkProgram(gl, renderProgram);
-  renderProgram.uProjection = gl.getUniformLocation(renderProgram, "uProjection");
-  renderProgram.uView = gl.getUniformLocation(renderProgram, "uView");
+  return {
+    update: updateProgram,
+    render: renderProgram,
+    dispose: () => {
+      gl.deleteProgram(updateProgram);
+      gl.deleteProgram(renderProgram);
+    },
+  };
+};
 
-  // The data to send down to the GPU buffers
-  const vertexData = new Float32Array([ -0.5, -0.5, 0.5, -0.5, -0.5, 0.5, 0.5,  0.5 ]);
-  const indexData = new Uint16Array([0, 1, 2, 1, 3, 2]);
-  const positionData = new Float32Array(PARTICLE_NUM * 3).map(() => (Math.random() * 2 - 1) * 5.0);
-  const velocityData = new Float32Array(PARTICLE_NUM * 3).map(() => (Math.random() * 2 - 1) * 0.01);
-  const durationData = new Float32Array(PARTICLE_NUM).map(() => Math.random() * 1.5);
-
-  // Create the data buffers, transformfeedbacks and vertexarrays
+const PARTICLE_VERTEX_BILLBOARD_DATA = new Float32Array([ -0.5, -0.5, 0.5, -0.5, -0.5, 0.5, 0.5,  0.5 ]);
+const PARTICLE_INDEX_BILLBOARD_DATA = new Uint16Array([0, 1, 2, 1, 3, 2]);
+const createParticleBuffers = (gl, { count = 1024, roomSize, maxDuration, speed }) => {
+  const positionData = new Float32Array(count * 3).map(() => (Math.random() * 2 - 1) * roomSize);
+  const velocityData = new Float32Array(count * 3).map(() => (Math.random() * 2 - 1) * speed);
+  const durationData = new Float32Array(count).map(() => Math.random() * maxDuration);
+  const lapsedData = new Float32Array(count).map(() => Math.random() * maxDuration);
   const vertexBuffer = gl.createBuffer();
   const indexBuffer = gl.createBuffer();
   const positionBuffers = [gl.createBuffer(), gl.createBuffer()];
   const velocityBuffers = [gl.createBuffer(), gl.createBuffer()];
   const durationBuffers = [gl.createBuffer(), gl.createBuffer()];
+  const lapsedBuffers = [gl.createBuffer(), gl.createBuffer()];
   const feedbackBuffers = [gl.createTransformFeedback(), gl.createTransformFeedback()];
   const updateArrays = [gl.createVertexArray(), gl.createVertexArray()];
   const renderArrays = [gl.createVertexArray(), gl.createVertexArray()];
 
-  // Populate the 'billboard' buffers with data
+  // Populate the 'render' buffers with data
   gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
-  gl.bufferData(gl.ARRAY_BUFFER, vertexData, gl.STATIC_DRAW);
+  gl.bufferData(gl.ARRAY_BUFFER, PARTICLE_VERTEX_BILLBOARD_DATA, gl.STATIC_DRAW);
   gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
-  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indexData, gl.STATIC_DRAW);
+  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, PARTICLE_INDEX_BILLBOARD_DATA, gl.STATIC_DRAW);
   gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
-  // Populate the 
+
+  // Populate the 'update' buffers with data
   for (let i = 0; i < 2; i++) {
     gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffers[i]);
     gl.bufferData(gl.ARRAY_BUFFER, positionData, gl.STREAM_COPY);
@@ -158,15 +179,21 @@ const createParticles = gl => {
     gl.bufferData(gl.ARRAY_BUFFER, velocityData, gl.STREAM_COPY);
     gl.bindBuffer(gl.ARRAY_BUFFER, durationBuffers[i]);
     gl.bufferData(gl.ARRAY_BUFFER, durationData, gl.STREAM_COPY);
+    gl.bindBuffer(gl.ARRAY_BUFFER, lapsedBuffers[i]);
+    gl.bufferData(gl.ARRAY_BUFFER, lapsedData, gl.STREAM_COPY);
     gl.bindBuffer(gl.ARRAY_BUFFER, null);
   }
+
   for (let i = 0; i < 2; i++) {
+    // Setup the transformFeedbacks
     gl.bindTransformFeedback(gl.TRANSFORM_FEEDBACK, feedbackBuffers[i]);
     gl.bindBufferBase(gl.TRANSFORM_FEEDBACK_BUFFER, 0, positionBuffers[(i + 1) % 2]);
     gl.bindBufferBase(gl.TRANSFORM_FEEDBACK_BUFFER, 1, velocityBuffers[(i + 1) % 2]);
     gl.bindBufferBase(gl.TRANSFORM_FEEDBACK_BUFFER, 2, durationBuffers[(i + 1) % 2]);
+    gl.bindBufferBase(gl.TRANSFORM_FEEDBACK_BUFFER, 3, lapsedBuffers[(i + 1) % 2]);
     gl.bindTransformFeedback(gl.TRANSFORM_FEEDBACK, null);
 
+    // Setup the update vertexArrays
     gl.bindVertexArray(updateArrays[i]);
     gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffers[i]);
     gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
@@ -177,10 +204,14 @@ const createParticles = gl => {
     gl.bindBuffer(gl.ARRAY_BUFFER, durationBuffers[i]);
     gl.vertexAttribPointer(2, 1, gl.FLOAT, false, 0, 0);
     gl.enableVertexAttribArray(2);
+    gl.bindBuffer(gl.ARRAY_BUFFER, lapsedBuffers[i]);
+    gl.vertexAttribPointer(3, 1, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(3);
     gl.bindBuffer(gl.ARRAY_BUFFER, null);
     gl.bindVertexArray(null);
     gl.bindTransformFeedback(gl.TRANSFORM_FEEDBACK, null);
 
+    // Setup the render vertexArrays
     gl.bindVertexArray(renderArrays[i]);
     gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffers[i]);
     gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
@@ -197,34 +228,52 @@ const createParticles = gl => {
   }
 
   return {
-    index: 0,
-    updateProgram,
-    renderProgram,
     updateArrays,
     renderArrays,
-    feedbackBuffers,
+    feedback: feedbackBuffers,
+    dispose: () => {
+      gl.deleteBuffer(vertexBuffer);
+      gl.deleteBuffer(indexBuffer);
+      for (let i = 0; i < 2; i++) {
+        gl.deleteBuffer(positionBuffers[i]);
+        gl.deleteBuffer(velocityBuffers[i]);
+        gl.deleteBuffer(durationBuffers[i]);
+        gl.deleteBuffer(lapsedBuffers[i]);
+        gl.deleteVertexArray(updateArrays[i]);
+        gl.deleteVertexArray(renderArrays[i]);
+        gl.deleteTransformFeedback(feedbackBuffers[i]);
+      }
+    },
   };
 };
 
-const VertexUpdateSource = `#version 300 es
+const FLOAT = v => v % 1 === 0 ? `${v}.0` : v;
+const FLOAT2 = v => v % 1 === 0 ? `${v}.0` : v;
+
+const VertexUpdateSource = ({ size, roomSize, insideAlpha, outsideAlpha, speed }) => `#version 300 es
   uniform mat4 uProjection;
   uniform mat4 uView;
   uniform mat4 uLight;
+  uniform float uMinDuration;
+  uniform float uMaxDuration;
   layout(location=0) in vec3 aPosition;
   layout(location=1) in vec3 aVelocity;
   layout(location=2) in float aDuration;
+  layout(location=3) in float aLapsed;
   out vec3 vPosition;
   out vec3 vVelocity;
   out float vDuration;
+  out float vLapsed;
   out vec4 vColor;
   float rand(vec2 co){
-    return (fract(sin(dot(co.xy, vec2(2.43, 235.02))) * 78.53) * 2.0 - 1.0) * 2.0;
+    return (fract(sin(dot(co.xy, vec2(2.43, 235.02))) * 78.53) * 2.0 - 1.0) * ${FLOAT(roomSize)};
   }
   void main() {
-    if (aDuration <= 0.0) {
+    if (aLapsed > aDuration) {
       vPosition = vec3(rand(aPosition.xy), rand(aPosition.yz), rand(aPosition.zx));
-      vVelocity = vec3(rand(vPosition.zy), rand(vPosition.xz), rand(vPosition.xy)) * 0.01;
-      vDuration = 1.5;
+      vVelocity = normalize(vec3(rand(vPosition.zy), rand(vPosition.xz), rand(vPosition.xy))) * ${FLOAT(speed)};
+      vDuration = uMinDuration + (uMaxDuration - uMinDuration) * rand(vPosition.xx);
+      vLapsed = 0.0;
     } else {
       float uDeltaTime = 0.01;
       vec3 delta = aPosition * -1.0;
@@ -232,23 +281,24 @@ const VertexUpdateSource = `#version 300 es
       vec3 acceleration = 0.005 * normalize(delta);
       vPosition = aPosition + aVelocity * uDeltaTime;
       vVelocity = aVelocity + acceleration * uDeltaTime;
-      vDuration = aDuration - uDeltaTime;
+      vDuration = aDuration;
+      vLapsed = aLapsed + uDeltaTime;
     }
+    gl_PointSize = ${FLOAT(size)};
     gl_Position = uProjection * uView * vec4(vPosition, 1.0);
+
     vec4 P0 = uLight * vec4(vPosition, 1.0);
     vec3 P1 = P0.xyz / P0.w;
-    float A = 0.1;
-    // if (P1.x > -0.99 && P1.x < 0.99 && P1.y > -0.99 && P1.y < 0.99 && P1.z > -0.99 && P1.z < 0.99) {
-    if (P1.x > -0.99 && P1.x < 0.99 && P1.y > -0.99 && P1.y < 0.99) {
-      A = 1.0;
-    }
-    float T = 1.0 - abs(vDuration - 0.75) / 0.75;
-    gl_PointSize = ${PARTICLE_SIZE};
-    vColor = vec4(1.0, 1.0, 1.0, A * T * 0.4);
+    float A = ${FLOAT(outsideAlpha)};
+    if (P1.x > -0.99 && P1.x < 0.99 && P1.y > -0.99 && P1.y < 0.99 && P1.z > -0.99 && P1.z < 0.99)
+      A = ${FLOAT(insideAlpha)};
+    float Ain = min(aLapsed, 1.0);
+    float Aut = min(aDuration - aLapsed, 1.0);
+    vColor = vec4(1.0, 1.0, 1.0, A * Ain * Aut);
   }
 `;
 
-const FragmentUpdateSource = `#version 300 es
+const FragmentUpdateSource = () => `#version 300 es
   precision mediump float;
   in vec4 vColor;
   out vec4 fragColor;
@@ -257,7 +307,7 @@ const FragmentUpdateSource = `#version 300 es
   }
 `;
 
-const VertexRenderSource = `#version 300 es
+const VertexRenderSource = () => `#version 300 es
   uniform mat4 uProjection;
   uniform mat4 uView;
   layout(location=0) in vec3 aPosition;
@@ -269,7 +319,7 @@ const VertexRenderSource = `#version 300 es
   }
 `;
 
-const FragmentRenderSource = `#version 300 es
+const FragmentRenderSource = () => `#version 300 es
   precision mediump float;
   in vec2 vCoord;
   out vec4 fragColor;
@@ -279,36 +329,52 @@ const FragmentRenderSource = `#version 300 es
   }
 `;
 
+const VertexMonkeySource = `#version 300 es
+  precision mediump float;
+  uniform mat4 uProjection;
+  uniform mat4 uView;
+  layout(location=0) in vec3 aPosition;
+  out vec3 vPosition;
+  void main() {
+    vPosition = vec4(aPosition).xyz;
+    gl_Position = uProjection * uView * vec4(vPosition, 1.0);
+  }
+`;
+
+const FragmentMonkeySource = `#version 300 es
+  precision mediump float;
+  uniform mat4 uLightPosition;
+  in vec3 vPosition;
+  out vec4 fragColor;
+  void main() {
+    vec3 fromLightToFrag = (vPosition - uLightPosition);
+    float lightFragdist = length(fromLightToFrag);
+    fragColor = vec4(..., ..., ..., 1.0);
+  }
+`;
 
 /*
-    gl.bindVertexArray(app.vertexArray);
-    const positionBuffer = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(instancePositions), gl.STATIC_DRAW);
-    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
-    gl.enableVertexAttribArray(0);
+const VertexShadowSource = `#version 300 es
+  precision mediump float;
+  uniform mat4 uProjection;
+  uniform mat4 uView;
+  layout(location=0) in vec3 aPosition;
+  out vec3 vPosition;
+  void main() {
+    vPosition = vec4(aPosition).xyz;
+    gl_Position = uProjection * uView * vec4(vPosition, 1.0);
+  }
+`;
 
-    const offsetBuffer = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, offsetBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(instanceOffsets), gl.STATIC_DRAW);
-    gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 0, 0);
-    gl.enableVertexAttribArray(1);
-    gl.vertexAttribDivisor(1, 1);
-
-    const rotationBuffer = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, rotationBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(instanceRotations), gl.STATIC_DRAW);
-    gl.vertexAttribPointer(2, 1, gl.FLOAT, false, 0, 0);
-    gl.enableVertexAttribArray(2);
-    gl.vertexAttribDivisor(2, 1);
-
-    const colorBuffer = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(instanceColors), gl.STATIC_DRAW);
-    gl.vertexAttribPointer(3, 3, gl.FLOAT, false, 0, 0);
-    gl.enableVertexAttribArray(3);
-    gl.vertexAttribDivisor(3, 1);
-
-    gl.bindVertexArray(null);
-    gl.bindBuffer(gl.ARRAY_BUFFER, null);
+const FragmentShadowSource = `#version 300 es
+  precision mediump float;
+  uniform mat4 uLightPosition;
+  in vec3 vPosition;
+  out vec4 fragColor;
+  void main() {
+    vec3 fromLightToFrag = (vPosition - uLightPosition);
+    float lightFragdist = length(fromLightToFrag);
+    fragColor = vec4(..., ..., ..., 1.0);
+  }
+`;
 */

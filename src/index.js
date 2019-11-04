@@ -44,5 +44,9 @@ render((
         return null;
       }}
     </Options.Context.Consumer>
+    <button style={{ position: 'absolute', top: 0, right: 0}} children="reset" onClick={() => {
+      window.sessionStorage.removeItem("preset");
+      setTimeout(() => window.location.reload(), 0);
+    }} />
   </Options.Provider>),
   document.getElementById('root'));

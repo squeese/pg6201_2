@@ -96,3 +96,61 @@ export const linkProgram = (gl, program) => {
     throw new Error(`Unable to link shader`);
   return program;
 };
+
+export const createProgramUniformHelper = gl => {
+  const handler = {
+    get: (location, fn) => (...args) => gl[fn](location, ...args),
+  };
+  const wmap = new WeakMap();
+  return (program, name) => {
+    let map = wmap.get(program);
+    if (!map) {
+      wmap.set(program, new Map());
+      map = wmap.get(program);
+    }
+    let proxy = map.get(name);
+    if (!proxy) {
+      const location = gl.getUniformLocation(program, name);
+      map.set(name, new Proxy(location, handler));
+      proxy = map.get(name);
+    }
+    return proxy;
+  }
+};
+
+export const createGenericMesh = (gl, { vertices, indices, normals }) => {
+  const vertexArray = gl.createVertexArray();
+  gl.bindVertexArray(vertexArray);
+  const vertexBuffer = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
+  gl.bufferData(gl.ARRAY_BUFFER, vertices instanceof Float32Array ? vertices : new Float32Array(vertices), gl.STATIC_DRAW);
+  gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
+  gl.enableVertexAttribArray(0);
+  let normalBuffer = null;
+  if (normals) {
+    normalBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, normalBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, normals instanceof Float32Array ? normals : new Float32Array(normals), gl.STATIC_DRAW);
+    gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(1);
+  }
+  const indexBuffer = gl.createBuffer()
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
+  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices instanceof Uint16Array ? indices : new Uint16Array(indices), gl.STATIC_DRAW);
+  gl.bindVertexArray(null);
+  gl.bindBuffer(gl.ARRAY_BUFFER, null);
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
+  return {
+    vertexArray,
+    normalBuffer,
+    indexBuffer,
+    length: indices.length,
+    cleanup: () => {
+      gl.deleteBuffer(vertexBuffer);
+      if (normalBuffer)
+        gl.deleteBuffer(normalBuffer);
+      gl.deleteBuffer(indexBuffer);
+      gl.deleteVertexArray(vertexArray);
+    },
+  };
+};
