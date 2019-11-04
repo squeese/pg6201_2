@@ -61,7 +61,7 @@
         vec4 X = uTest * vec4(position, 1.0);
         vec3 Y = X.xyz / X.w;
         // vec3 Y = X.xyz;
-        float C = 0.05;
+        float C = 0.0;
         if (Y.x > -0.99 && Y.x < 0.99 && Y.y > -0.99 && Y.y < 0.99) C = 1.0;
         vColor = C;
       }
@@ -69,7 +69,7 @@
     <script type="x-shader/x-fragment" id="ParticleFragmentShader">
       in float vColor;
       void main() {
-        gl_FragColor = vec4(vColor, vColor, vColor, 1.0);
+        gl_FragColor = vec4(1.0, 1.0, 1.0, vColor);
       }
     </script>
   </body>

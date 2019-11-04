@@ -3,8 +3,8 @@ import { render } from 'react-dom';
 import { createGlobalStyle } from 'styled-components';
 import * as Options from './deps/Options';
 import OptionsGUI from './OptionsGUI';
-import ThreeJSApp from './ThreeJSApp';
-
+// import ThreeJSApp from './ThreeJSApp';
+import ThreeJSApp from './Test';
 
 const GlobalStyle = createGlobalStyle`
   body {
@@ -26,12 +26,23 @@ const GlobalStyle = createGlobalStyle`
   }
 `;
 
+const preset = window.sessionStorage.getItem("preset");
+let timeout;
 render((
-  <Options.Provider>
+  <Options.Provider preset={preset && JSON.parse(preset)}>
     <GlobalStyle />
     <OptionsGUI />
     <Options.Context.Consumer>
       {({ ready }) => ready && <ThreeJSApp />}
+    </Options.Context.Consumer>
+    <Options.Context.Consumer>
+      {({ ready, state }) => {
+        if (ready) {
+          clearTimeout(timeout);
+          timeout = setTimeout(() => window.sessionStorage.setItem("preset", JSON.stringify(state)), 250);
+        }
+        return null;
+      }}
     </Options.Context.Consumer>
   </Options.Provider>),
   document.getElementById('root'));

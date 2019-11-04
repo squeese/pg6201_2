@@ -41,7 +41,7 @@ export const Provider = ({ children, preset = null }) => {
   const update = useCallback(dispatcher => updater.current(dispatcher), [ updater ]);
   return (
     <Context.Provider
-      value={{ ready, update, state }}
+      value={{ ready, update, state, proxy: proxy.current }}
       children={children}
     />
   );
@@ -234,10 +234,17 @@ export const Vector = ({ name, value = [0, 0, 0], children, validate = noop, ...
   );
 };
 
-export const InputFloat = ({ header = null, ...props }) => (
+export const Reset = ({ name, value }) => {
+  const { update } = useContext(Context);
+  return (
+    <Button children="reset" onClick={() => update(proxy => proxy[name].set(value))} />
+  );
+};
+
+export const InputFloat = ({ header = null, reset = true, name, value, ...props }) => (
   <Fragment>
-    {header && <Label>{header}</Label>}
-    <Float {...props}>
+    {header && <Label>{header}{!reset ? null : <Reset name={name} value={value} />}</Label>}
+    <Float name={name} value={value} {...props}>
       {props => <Input {...props} />}
     </Float>
   </Fragment>
@@ -269,9 +276,9 @@ export const InputDropdown = ({ header = null, ...props }) => (
   </Fragment>
 );
 
-export const InputVector = ({ header = null, name, value, validate, ...props }) => (
+export const InputVector = ({ header = null, reset = true, name, value, validate, ...props }) => (
   <Fragment>
-    {header && <Label>{header}</Label>}
+    {header && <Label>{header}{!reset ? null : <Reset name={name} value={value} />}</Label>}
     <Row>
       <Vector name={name} value={value} validate={validate}>
         {(value, index) => <InputFloat key={index} {...props} name={index} value={value} />}
@@ -349,6 +356,15 @@ export const Label = styled.h2`
   margin: 0;
   padding-left: 0.5rem;
   background: #0004;
+  & > button {
+    float: right;
+    color: #4576;
+    font-size: 0.65rem;
+    letter-spacing: -0.05rem;
+    &:hover {
+      color: white;
+    }
+  }
 `;
 
 export const Input = styled.input`
@@ -375,6 +391,7 @@ export const Select = styled.select`
 export const Row = styled.div`
   display: flex;
   flex-direction: row;
+  ${props => props.right ? 'justify-content: flex-end' : ''};
   & > input {
     min-width: 0;
     width: 0;
