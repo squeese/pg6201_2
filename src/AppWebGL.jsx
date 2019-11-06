@@ -9,7 +9,7 @@ import * as T from './deps/three.module';
 export default () => {
   const canvas = useRef();
   const app = useRef({}).current;
-  const { update, state:{ camera, particle, light }, proxy } = useContext(Context);
+  const { update, state:{ camera, particle, transforms }, proxy } = useContext(Context);
 
   useEffect(function InitializeThreeJSApplication() {
     const gl = app.gl = canvas.current.getContext('webgl2');
@@ -44,8 +44,8 @@ export default () => {
     let request = requestAnimationFrame(function frame() {
       const { gl, particle } = app;
       // Update
-      app.offset = utils.lerp(app.offset, camera.offset, 0.05);
-      quat.slerp(app.rotation, app.rotation, camera.rotation, 0.05);
+      app.offset = utils.lerp(app.offset, proxy.camera.offset.read(), 0.05);
+      quat.slerp(app.rotation, app.rotation, proxy.camera.rotation.read(), 0.05);
       vec3.transformQuat(position, [0, 0, app.offset], app.rotation);
       vec3.transformQuat(upwards, [0, 1, 0], app.rotation);
       mat4.lookAt(app.view, position, [0, 0, 0], upwards);
@@ -74,12 +74,12 @@ export default () => {
       request = requestAnimationFrame(frame);
     });
     return () => window.cancelAnimationFrame(request);
-  }, [app, camera, proxy]);
+  }, [app, proxy]);
 
   // Options panel 'Camera' changes
   useEffect(function OptionsCameraChange() {
     app.projection = mat4.perspective(app.projection, camera.fov * Math.PI/180, window.innerWidth/window.innerHeight, 0.1, 100);
-  }, [app, camera]);
+  }, [app, camera.fov]);
 
   // Options panel 'Particle' changes
   useEffect(function OptionsParticleChange() {
@@ -97,23 +97,45 @@ export default () => {
     app.uniform(app.particle.programs.update, "uMaxDuration").uniform1f(particle.maxDuration);
   }, [app, particle]);
 
-  // Options panel 'Light' changes
+  // Options panel 'Transforms' changes
   useEffect(function OptionsLightChange() {
     mat4.identity(app.light);
-    mat4.rotateY(app.light, app.light, light.rotation[1]);
-    mat4.rotateX(app.light, app.light, light.rotation[0]);
-    mat4.rotateZ(app.light, app.light, light.rotation[2]);
-    mat4.scale(app.light, app.light, light.scale);
-    const S0 = new T.Matrix4().makeShear(...light.shear);
-    mat4.multiply(app.light, app.light, S0.elements);
-    mat4.translate(app.light, app.light, light.translation);
+
+    if (transforms[0].wat === 0) {
+      const S0 = new T.Matrix4().makeShear(...transforms[0].shear);
+      mat4.multiply(app.light, app.light, S0.elements);
+    }
+
+    mat4.translate(app.light, app.light, transforms[0].translation);
+
+    if (transforms[0].wat === 1) {
+      const S0 = new T.Matrix4().makeShear(...transforms[0].shear);
+      mat4.multiply(app.light, app.light, S0.elements);
+    }
+
+    mat4.scale(app.light, app.light, transforms[0].scale);
+
+    if (transforms[0].wat === 2) {
+      const S0 = new T.Matrix4().makeShear(...transforms[0].shear);
+      mat4.multiply(app.light, app.light, S0.elements);
+    }
+
+    mat4.rotateY(app.light, app.light, transforms[0].rotation[1]);
+    mat4.rotateX(app.light, app.light, transforms[0].rotation[0]);
+    mat4.rotateZ(app.light, app.light, transforms[0].rotation[2]);
+
+    if (transforms[0].wat === 3) {
+      const S0 = new T.Matrix4().makeShear(...transforms[0].shear);
+      mat4.multiply(app.light, app.light, S0.elements);
+    }
+
     mat4.invert(app.light, app.light);
-  }, [app, light]);
+  }, [app, transforms]);
 
   // Mousemovement -> move the camera
   useEffect(function MouseOrbitalEventsForCamera() {
     return utils.mouseMoveHandlerGLMatrix(canvas.current, delta => {
-      update(({ camera }) => quat.multiply(camera.rotation, camera.rotation.read(), delta));
+      update(({ camera }) => quat.multiply(camera.rotation, camera.rotation.read(), delta), 'mousemove');
     });
   }, [canvas, update]);
 
@@ -130,9 +152,9 @@ export default () => {
       canvas.current.width = x;
       canvas.current.height = y;
       app.gl.viewport(0, 0, x, y);
-      app.projection = mat4.perspective(app.projection, camera.fov * Math.PI/180, x/y, 0.1, 100);
+      app.projection = mat4.perspective(app.projection, proxy.camera.fov.read() * Math.PI/180, x/y, 0.1, 100);
     });
-  }, [app, canvas, camera]);
+  }, [app, canvas, proxy]);
 
   return <canvas ref={canvas} />;
 };
@@ -219,52 +241,3 @@ const createParticleBuffers = (gl, { count = 1024, roomSize, maxDuration, speed 
     },
   };
 };
-
-
-/*
-const VertexRenderSource = () => `#version 300 es
-  uniform mat4 uProjection;
-  uniform mat4 uView;
-  layout(location=0) in vec3 aPosition;
-  layout(location=1) in vec2 aVertex;
-  out vec2 vCoord;
-  void main() {
-    gl_Position = uProjection * uView * vec4(aPosition.xy + aVertex, aPosition.z, 1.0);
-    vCoord = aVertex;
-  }
-`;
-
-const FragmentRenderSource = () => `#version 300 es
-  precision mediump float;
-  in vec2 vCoord;
-  out vec4 fragColor;
-  void main() {
-    float c = smoothstep(0.6, 0.0, length(vCoord));
-    fragColor = vec4(1.0, 1.0, 1.0, c);
-  }
-`;
-
-const VertexShadowSource = `#version 300 es
-  precision mediump float;
-  uniform mat4 uProjection;
-  uniform mat4 uView;
-  layout(location=0) in vec3 aPosition;
-  out vec3 vPosition;
-  void main() {
-    vPosition = vec4(aPosition).xyz;
-    gl_Position = uProjection * uView * vec4(vPosition, 1.0);
-  }
-`;
-
-const FragmentShadowSource = `#version 300 es
-  precision mediump float;
-  uniform mat4 uLightPosition;
-  in vec3 vPosition;
-  out vec4 fragColor;
-  void main() {
-    vec3 fromLightToFrag = (vPosition - uLightPosition);
-    float lightFragdist = length(fromLightToFrag);
-    fragColor = vec4(..., ..., ..., 1.0);
-  }
-`;
-*/

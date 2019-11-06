@@ -43,7 +43,7 @@ export const VertexUpdate = ({ size, roomSize, insideAlpha, outsideAlpha, speed 
     vec4 P0 = uLight * vec4(vPosition, 1.0);
     vec3 P1 = P0.xyz / P0.w;
     float A = ${FLOAT(outsideAlpha)};
-    if (P1.x > -0.99 && P1.x < 0.99 && P1.y > -0.99 && P1.y < 0.99 && P1.z > -0.99 && P1.z < 0.99)
+    if (P1.x > -0.99 && P1.x < 0.99 && P1.y > -0.99 && P1.y < 0.99 && P1.z > 0.0 && P1.z < 0.99)
       A = ${FLOAT(insideAlpha)};
     float Ain = min(aLapsed, 1.0);
     float Aut = min(aDuration - aLapsed, 1.0);

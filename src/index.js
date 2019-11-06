@@ -2,9 +2,11 @@ import React from 'react';
 import { render } from 'react-dom';
 import { createGlobalStyle } from 'styled-components';
 import * as Options from './deps/Options';
-import OptionsGUI from './OptionsGUI';
-// import ThreeJSApp from './ThreeJSApp';
-import ThreeJSApp from './Test';
+// import GUI from './GUIWebGL';
+// import App from './AppThreeJS';
+// import App from './AppWebGL';
+import GUI from './TextureProjection/GUI';
+import App from './TextureProjection/App';
 
 const GlobalStyle = createGlobalStyle`
   body {
@@ -31,9 +33,9 @@ let timeout;
 render((
   <Options.Provider preset={preset && JSON.parse(preset)}>
     <GlobalStyle />
-    <OptionsGUI />
+    <GUI />
     <Options.Context.Consumer>
-      {({ ready }) => ready && <ThreeJSApp />}
+      {({ ready, proxy }) => ready && <App options={proxy} />}
     </Options.Context.Consumer>
     <Options.Context.Consumer>
       {({ ready, state }) => {

@@ -8,7 +8,7 @@ const noop = () => {};
 const useDebounce = (delay = 0) => {
   const timeout = useRef(null);
   return cb => {
-    if (timeout.current) clearTimeout(timeout.current);
+    clearTimeout(timeout.current);
     timeout.current = setTimeout(() => {
       cb();
       timeout.current = null;
@@ -32,13 +32,17 @@ export const Provider = ({ children, preset = null }) => {
     updater.current = dispatcher => {
       dispatcher(proxy.current);
       debounce(() => setState(proxy.current()));
+      // setState(proxy.current());
     };
-  }, [ debounce ]);
+  }, [ proxy, debounce ]);
   useEffect(() => {
     proxy.current = changeProxy(preset || baseline.current());
     setState(proxy.current());
   }, [ preset ]);
-  const update = useCallback(dispatcher => updater.current(dispatcher), [ updater ]);
+  const update = useCallback((dispatcher, who) => {
+    // console.log('update()', who);
+    updater.current(dispatcher);
+  }, [ updater ]);
   return (
     <Context.Provider
       value={{ ready, update, state, proxy: proxy.current }}
@@ -66,13 +70,15 @@ export const Float = ({ name, value, min = MIN, max = MAX, step = 0.1, children,
   const [ pending, setPending ] = useState(null);
   const { state, update } = useContext(Context);
   const scroll = useRef(0);
+
   useEffect(() => {
     update(proxy => {
       if (proxy[name].read() === undefined)
         proxy[name].set(value);
     });
     return () => update(proxy => proxy[name].delete());
-  }, [ update, name, value ]);
+  }, [update, name, value]);
+
   const onChange = ({ target }) => {
     const numValue = Math.min(max, Math.max(min, parseFloat(target.value)));
     if (target.value !== "" && target.value === numValue.toString())  {
@@ -91,6 +97,42 @@ export const Float = ({ name, value, min = MIN, max = MAX, step = 0.1, children,
   const invalid = pending !== null;
   return children({
     value: invalid ? pending : floatFormat(state.hasOwnProperty(name) ? state[name] : value),
+    invalid,
+    onChange,
+    onWheel,
+    ...props,
+  });
+};
+
+export const Int = ({ name, value, min = MIN, max = MAX, step = 1, children, ...props }) => {
+  const [ pending, setPending ] = useState(null);
+  const { state, update } = useContext(Context);
+  const scroll = useRef(0);
+  useEffect(() => {
+    update(proxy => {
+      if (proxy[name].read() === undefined)
+        proxy[name].set(value);
+    });
+    return () => update(proxy => proxy[name].delete());
+  }, [ update, name, value ]);
+  const onChange = ({ target }) => {
+    const numValue = Math.min(max, Math.max(min, parseInt(target.value, 10)));
+    if (target.value !== "" && target.value === numValue.toString())  {
+      setPending(null);
+      update(proxy => proxy[name].set(numValue));
+    } else setPending(target.value);
+  };
+  const onWheel = ({ deltaY, target }) => {
+    if (pending !== null || target.disabled) return;
+    if (scroll.current === 0) window.requestAnimationFrame(() => {
+      update(proxy => proxy[name].set(Math.min(max, Math.max(min, proxy[name].read() - Math.round(scroll.current) * step))));
+      scroll.current = 0;
+    });
+    scroll.current += deltaY * 0.1
+  };
+  const invalid = pending !== null;
+  return children({
+    value: invalid ? pending : state.hasOwnProperty(name) ? state[name] : value,
     invalid,
     onChange,
     onWheel,
@@ -141,7 +183,7 @@ export const Dictionary = ({ name, children }) => {
   }, [ update, name ]);
   const mmUpdate = useCallback(dispatcher => {
     if (!active.current) return;
-    update((proxy, ...args) => {
+    update(proxy => {
       try {
         dispatcher(proxy[name]);
       } catch(e) {
@@ -162,25 +204,32 @@ export const List = ({ name, children, min = 0, max = 10 }) => {
   const [ list, setList ] = useState(Array.from(Array(min)).map((_, i) => i));
   const { ready, state, update } = useContext(Context);
   const active = useRef(true);
+
   useEffect(() => {
     update(proxy => {
-      if (proxy[name] === undefined) proxy[name].set([]);
+      if (proxy[name].read() === undefined) proxy[name].set([]);
       else setList(proxy[name].read().map((_, i) => i));
     });
     return () => {
       active.current = false;
       update(proxy => proxy[name].delete());
     };
-  }, [ update, active, name ]);
+  }, [update, name]);
+
   useEffect(() => {
+    // state changes
     if (state[name] && list.length < state[name].length)
       update(proxy => proxy[name].splice(-1));
-  }, [ update, name, state, list ]);
+  }, [list, name, state, update]);
+
   useEffect(() => {
     if (state[name] === undefined) return;
-    if (list.length === state[name].length) return;
-     setList(state[name].map((_, i) => i));
-  }, [ state, list.length, name ]);
+    setList(list => {
+      if (list.length === state[name].length) return list;
+      return state[name].map((_, i) => i);
+    });
+  }, [state, name]);
+
   const mmUpdate = useCallback(dispatcher => {
     if (!active.current) return;
     update(proxy => {
@@ -191,10 +240,13 @@ export const List = ({ name, children, min = 0, max = 10 }) => {
         else setList(proxy[name].read().map((_, i) => i));
         dispatcher(proxy[name]);
       }
-      if (list.length !== proxy[name].read().length)
-        setList(proxy[name].read().map((_, i) => i));
+      setList(list => {
+        if (list.length === proxy[name].read().length) return list;
+        return proxy[name].read().map((_, i) => i);
+      });
     });
-  }, [ update, active, name, list.length ]);
+  }, [update, active, name]);
+
   const increment = () => (list.length < max) && setList([...list, list.length]);
   const decrement = () => (list.length > min) && setList(list.slice(0, -1));
   return (
@@ -208,25 +260,32 @@ export const List = ({ name, children, min = 0, max = 10 }) => {
 export const Vector = ({ name, value = [0, 0, 0], children, validate = noop, ...props }) => {
   const { ready, state, update } = useContext(Context);
   const active = useRef(true);
+  const values = useRef(value);
+  if (values.current.length !== value.length || values.current.reduce((s, v, i) => (s || value[i] !== v), false)) {
+    values.current = value;
+  }
+
   useEffect(() => {
-    update(proxy => proxy[name].read() === undefined && proxy[name].set(value));
+    update(proxy => proxy[name].read() === undefined && proxy[name].set(values.current));
     return () => {
       active.current = false;
       update(proxy => proxy[name].delete());
     };
-  }, [ update, name, value ]);
+  }, [ update, name, values ]);
+
   const mmUpdate = useCallback(dispatcher => {
     if (!active.current) return;
     update(proxy => {
       try {
         dispatcher(proxy[name]);
       } catch(e) {
-        proxy[name].set(value);
+        proxy[name].set(values.current);
         dispatcher(proxy[name]);
       }
       validate(proxy[name]);
     });
-  }, [ update, name, active, validate, value ]);
+  }, [ update, name, active, validate, values ]);
+
   return (
     <Context.Provider value={{ ready, update: mmUpdate, state: state[name] || [] }}>
       {value.map(children)}
@@ -250,11 +309,20 @@ export const InputFloat = ({ header = null, reset = true, name, value, ...props 
   </Fragment>
 );
 
-export const InputBool = ({ header = null, ...props }) => (
+export const InputInt = ({ header = null, reset = true, name, value, ...props }) => (
   <Fragment>
-    {header && <Label>{header}</Label>}
+    {header && <Label>{header}{!reset ? null : <Reset name={name} value={value} />}</Label>}
+    <Int name={name} value={value} {...props}>
+      {props => <Input {...props} />}
+    </Int>
+  </Fragment>
+);
+
+export const InputBool = ({ header = null, reset = true, name, value, ...props }) => (
+  <Fragment>
+    {header && <Label>{header}{!reset ? null : <Reset name={name} value={value} />}</Label>}
     <Row>
-      <Bool {...props}>
+      <Bool name={name} value={value} {...props}>
         {props => (
           <div style={{ background: '#0003', flex: '1 0 auto' }}>
             <input type="checkbox" {...props} />
