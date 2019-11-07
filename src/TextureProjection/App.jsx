@@ -1,7 +1,18 @@
 import React, { useRef, useEffect } from 'react';
 import * as utils from './../deps/utils';
-import { Vertex, Fragment } from './Shaders';
+import * as shader from './Shaders';
 import { useGUIChanges } from './GUI';
+
+// in vec3 Bn;     // worldBinormal, right (x)
+// in vec3 Tn;     // worldTangent, up (y)
+// in vec3 Nn;     // worldNormal, forward (z)
+// vec3 normal;
+// vec3 L = normalize(In.lightVec.xyz);
+// vec3 V = normalize(In.eyeVec.xyz);
+// bring vectors to the same space when doing math on then, worldspace, object space etc..
+
+
+
 
 export default ({ options }) => {
   const canvas = useRef();
@@ -9,65 +20,31 @@ export default ({ options }) => {
   utils.useCanvas(app, canvas, options);
 
   useEffect(function Initialize() {
-    app.gl.clearColor(0.3, 0.4, 0.6, 1.0);
-    app.gl.enable(app.gl.CULL_FACE);
-    app.gl.enable(app.gl.BLEND);
-    app.gl.blendFunc(app.gl.SRC_ALPHA, app.gl.ONE);
-    app.boxMesh = utils.createGenericMesh(app.gl, utils.createFlatCubeMesh(3));
-    app.boxProgram = utils.createGenericProgram(app.gl, {
-      vert: Vertex(options.state),
-      frag: Fragment(options.state),
-      after: program => {
-        app.gl.uniformBlockBinding(program, app.gl.getUniformBlockIndex(program, 'Camera'), 0);
-        app.gl.uniformBlockBinding(program, app.gl.getUniformBlockIndex(program, 'Lights'), 1);
-      }
-    });
-    app.UBOCamera = utils.createUniformBufferObject(app.gl, 0, $ => [
+    const { gl } = app;
+    gl.clearColor(0.3, 0.4, 0.6, 1.0);
+    gl.enable(gl.CULL_FACE);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+    app.boxMesh = utils.createGenericMesh(gl, utils.createFlatCubeMesh(1, true));
+
+    app.uCamera = shader.create_UNIFORM_BLOCK_CAMERA(app.gl);
+    app.uLightDirections = shader.create_UNIFORM_BLOCK_LIGHT_DIRECTIONS(app.gl, options.state);
+    app.uLightColors = shader.create_UNIFORM_BLOCK_LIGHT_COLORS(app.gl, options.state);
+
+    /*
+    app.UBOCamera = utils.createUniformBufferObject(gl, $ => [
       $.mat4('projection'),
       $.mat4('view'),
       $.vec3('position'),
     ]);
-    app.UBOLights = utils.createUniformBufferObject(app.gl, 1, $ => [
-      $.vec4('test'),
-      $.vec4('color'),
+    app.UBOLights = utils.createUniformBufferObject(gl, $ => [
       $.array('points', options.state.points.length, [
         $.vec3('ambient'),
         $.vec3('diffuse'),
         $.vec3('specular'),
         $.vec3('position'),
       ]),
-      $.array('boxes', options.state.boxes.length, [
-        $.vec3('ambient'),
-        $.vec3('diffuse'),
-        $.vec3('specular'),
-        $.vec3('direction'),
-        $.mat4('transform'),
-      ]),
-    ]);
-    console.log(app.UBOLights.offsets.color, app.UBOLights.glBuffer, app.UBOLights.size, app.UBOCamera.size);
-    utils.copy(app.UBOLights.test, [1, 0, 0]);
-    utils.copy(app.UBOLights.color, [0, 1, 0]);
-
-    app.UBOLights.upload(app.gl);
-    // app.gl.bindBuffer(app.gl.UNIFORM_BUFFER, app.UBOLights.glBuffer);
-    // const indices = app.gl.getUniformIndices(app.boxProgram.program, ['Camera', 'Lights']);
-    const indices = app.gl.getUniformIndices(app.boxProgram.program, ['Camera', 'Lights']);
-    const offsets = app.gl.getActiveUniforms(app.boxProgram.program, [0, 1], app.gl.UNIFORM_OFFSET);
-    const size = app.gl.getActiveUniformBlockParameter(app.boxProgram.program, 1, app.gl.UNIFORM_BLOCK_DATA_SIZE);
-    console.log(indices, offsets, size);
-    app.gl.bindBufferRange(app.gl.UNIFORM_BUFFER, 1, app.UBOLights.glBuffer, 0, 16);
-    /*
-    app.UBOLightsVertex = utils.createUniformBufferObject(app.gl, 2, $ => [
-      $.array('points', options.state.points.length, [
-        $.vec3('position'),
-      ]),
-    ]);
-    app.UBOLightsFragment = utils.createUniformBufferObject(app.gl, 3, $ => [
-      $.array('points', options.state.points.length, [
-        $.vec3('ambient'),
-        $.vec3('diffuse'),
-        $.vec3('specular'),
-      ]),
+      $.padUniformBufferOffsetAlignment(),
       $.array('boxes', options.state.boxes.length, [
         $.vec3('ambient'),
         $.vec3('diffuse'),
@@ -77,6 +54,24 @@ export default ({ options }) => {
       ]),
     ]);
     */
+    app.boxProgram = utils.createGenericProgram(app.gl, {
+      vert: shader.Vertex(options.state),
+      frag: shader.Fragment(options.state),
+      after: program => {
+        const BIND_CAMERA = 0;
+        const BIND_LIGHTS_VERT = 1;
+        const BIND_LIGHTS_FRAG = 2;
+        const INDX_CAMERA = app.gl.getUniformBlockIndex(program, 'Camera');
+        const INDX_LIGHTS_VERT = app.gl.getUniformBlockIndex(program, 'LightsVert');
+        const INDX_LIGHTS_FRAG = app.gl.getUniformBlockIndex(program, 'LightsFrag');
+        app.gl.uniformBlockBinding(program, INDX_CAMERA, BIND_CAMERA);
+        app.gl.uniformBlockBinding(program, INDX_LIGHTS_VERT, BIND_LIGHTS_VERT);
+        app.gl.uniformBlockBinding(program, INDX_LIGHTS_FRAG, BIND_LIGHTS_FRAG);
+        app.gl.bindBufferBase(app.gl.UNIFORM_BUFFER, BIND_CAMERA, app.UBOCamera.glBuffer);
+        app.gl.bindBufferRange(app.gl.UNIFORM_BUFFER, BIND_LIGHTS_VERT, app.UBOLights.glBuffer, 0, 64);
+        app.gl.bindBufferRange(app.gl.UNIFORM_BUFFER, BIND_LIGHTS_FRAG, app.UBOLights.glBuffer, 0, 384);
+      }
+    });
   }, [app, canvas, options]);
 
   useGUIChanges(app, canvas);

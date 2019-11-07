@@ -236,7 +236,7 @@ export const useDeltaAnimationFrame = (fps, fn) => {
 export const useFixedAnimationFrame = (fps, update, render) => {};
 
 
-export const createFlatCubeMesh = (size = 1) => ({
+export const createFlatCubeMesh = (size = 1, CW = false) => ({
   vertices: new Float32Array([
     -size, size, size,
     -size, -size, size,
@@ -263,31 +263,20 @@ export const createFlatCubeMesh = (size = 1) => ({
     -size, -size, size,
     -size, size, size,
   ]),
-  normals: new Float32Array([
-    0, 0, 1,
-    0, 0, 1,
-    0, 0, 1,
-    0, 0, 1,
-    0, -1, 0,
-    0, -1, 0,
-    0, -1, 0,
-    0, -1, 0,
-    0, 0, -1,
-    0, 0, -1,
-    0, 0, -1,
-    0, 0, -1,
-    0, 1, 0,
-    0, 1, 0,
-    0, 1, 0,
-    0, 1, 0,
-    1, 0, 0,
-    1, 0, 0,
-    1, 0, 0,
-    1, 0, 0,
-    -1, 0, 0,
-    -1, 0, 0,
-    -1, 0, 0,
-    -1, 0, 0,
+  normals: CW ? new Float32Array([
+    0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1,
+    0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0,
+    0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1,
+    0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0,
+    -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0,
+    1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0
+  ]) : new Float32Array([
+    0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1,
+    0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0,
+    0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1,
+    0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0,
+    1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0,
+    -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0,
   ]),
   indices: new Uint16Array([
     0, 1, 2, 0, 2, 3,
@@ -311,10 +300,6 @@ export const createUniformBufferObject = (function Closure() {
   };
 
   const UniformBufferObjectProxyBase = {
-    upload(gl) {
-      gl.bindBuffer(gl.UNIFORM_BUFFER, this.glBuffer);
-      gl.bufferSubData(gl.UNIFORM_BUFFER, 0, this.arrayBuffer);
-    },
     rebuild(gl, lengths = {}) {
       if (this.glBuffer)
         this.dispose(gl);
@@ -326,6 +311,13 @@ export const createUniformBufferObject = (function Closure() {
       this.arrayBuffer = new ArrayBuffer(this.size);
       this.glBuffer = gl.createBuffer();
       row.map(fn => fn(this.arrayBuffer, this.views, this.offsets));
+      gl.bindBuffer(gl.UNIFORM_BUFFER, this.glBuffer);
+      gl.bufferData(gl.UNIFORM_BUFFER, this.size, gl.DYNAMIC_DRAW);
+      gl.bindBuffer(gl.UNIFORM_BUFFER, null);
+    },
+    upload(gl) {
+      gl.bindBuffer(gl.UNIFORM_BUFFER, this.glBuffer);
+      gl.bufferSubData(gl.UNIFORM_BUFFER, 0, this.arrayBuffer);
     },
     dispose(gl) {
       gl.deleteBuffer(this.glBuffer);
@@ -333,7 +325,7 @@ export const createUniformBufferObject = (function Closure() {
   };
 
   const UniformBufferObjectProxyHandlers = {
-    get: (obj, key) => obj.hasOwnProperty(key) ? obj[key] : obj.views[key],
+    get: (obj, key) => obj[key] !== undefined ? obj[key] : obj.views[key],
   };
 
   const descriptionTerminal = bytes => name => (offset, space, _, chain) => {
@@ -356,7 +348,7 @@ export const createUniformBufferObject = (function Closure() {
     padUniformBufferOffsetAlignment: () => (offset, space, args, chain) => {
       const align = 256; // gl.getParameter(gl.UNIFORM_BUFFER_OFFSET_ALIGNMENT);
       const bytes = (align - offset % align) % align;
-      return chain(offset + bytes, () => console.log('skipped', bytes));
+      return chain(offset + bytes, () => {});
     },
     array: (name, _, entries) => (offset, space, args, chain) => {
       offset += space % 16;
@@ -389,5 +381,133 @@ export const createUniformBufferObject = (function Closure() {
     ubo.description = descriptor(uniformDescriptors);
     ubo.rebuild(gl, lengths);
     return new Proxy(ubo, UniformBufferObjectProxyHandlers);
+  };
+}());
+
+export const UBO = (function UBOClosure() {
+  const build = (offset, input, output) => {
+    const size = input.reduce((cursor, fn) => fn(cursor, (offset, build) => {
+      output.push(build);
+      return offset;
+    }), offset);
+    return size + (16 - size % 16) % 16;
+  };
+
+  const NodeRootProxyHandlers = {
+    get(root, key, proxy) {
+      if (key === 'dispose') return gl => gl.deleteBuffer(root.___gpu);
+      if (root.hasOwnProperty(key)) return root[key];
+      return root.__children[key];
+    },
+  };
+
+  const NodeTerminalProxyHandlers = {
+    apply(terminal, _, args) {
+      return terminal(terminal.__view, ...args);
+    },
+    get(terminal, key) {
+      return terminal[key];
+    },
+  };
+
+  const ArrayTerminal = (bytes, Type = Float32Array) => (name, value) => (cursor, next) => {
+    const spaceInCurrentBlock = 16 - cursor % 16;
+    const offset = cursor + (spaceInCurrentBlock < Math.min(16, bytes) ? spaceInCurrentBlock : 0);
+    return next(offset + bytes, (node, buffer) => {
+      const terminal = (view, value) => {
+        if (value !== undefined && Array.isArray(value))
+          copy(view, value);
+        return view;
+      };
+      terminal.__offset = offset;
+      terminal.__offsetEnd = offset + bytes;
+      terminal.__bytes = bytes;
+      terminal.__view = new Type(buffer, offset, bytes / Type.BYTES_PER_ELEMENT);
+      terminal(terminal.__view, value);
+      node[name] = new Proxy(terminal, NodeTerminalProxyHandlers);
+    });
+  };
+
+  const ValueTerminal = (Type = Float32Array) => (name, value) => (cursor, next) => {
+    const spaceInCurrentBlock = 16 - cursor % 16;
+    const offset = cursor + (spaceInCurrentBlock < Math.min(16, 4) ? spaceInCurrentBlock : 0);
+    return next(offset + 4, (node, buffer) => {
+      const terminal = (view, value) => {
+        if (value !== undefined && typeof value === 'number')
+          view[0] = value;
+        return view;
+      };
+      terminal.__offset = offset;
+      terminal.__offsetEnd = offset + 4;
+      terminal.__bytes = 4;
+      terminal.__view = new Type(buffer, offset, 1);
+      terminal(terminal.__view, value);
+      node[name] = new Proxy(terminal, NodeTerminalProxyHandlers);
+    });
+  };
+
+  return {
+    float: ValueTerminal(Float32Array),
+    uint: ValueTerminal(Uint32Array),
+    int: ValueTerminal(Int32Array),
+    vec2: ArrayTerminal(8),
+    vec3: ArrayTerminal(12),
+    vec4: ArrayTerminal(16),
+    mat3: ArrayTerminal(48),
+    mat4: ArrayTerminal(64),
+    padOffsetAlignment: (alignment = 256) => (cursor, next) => {
+      // gl.getParameter(gl.UNIFORM_BUFFER_OFFSET_ALIGNMENT)
+      return next(cursor + (alignment - cursor % alignment) % alignment, () => {});
+    },
+    array: (name, length, input) => (cursor, next) => {
+      const output = [];
+      const begin = cursor + (16 - cursor % 16) % 16;
+      let offset = begin;
+      if (Array.isArray(input)) {
+        for (let i = 0; i < length; i++)
+          offset = build(offset, input, output);
+        return next(offset, (node, buffer) => {
+          node[name] = new Proxy({
+            __offset: begin,
+            __offsetEnd: offset,
+            __bytes: offset - begin,
+            __children: Array.from(new Array(length)).map(() => ({})),
+          }, NodeRootProxyHandlers);
+          output.forEach((finalize, i) => finalize(node[name].__children[i / input.length | 0], buffer));
+        });
+      } else {
+        for (let i = 0; i < length; i++)
+          offset = build(offset, [input(i)], output);
+        return next(offset, (node, buffer) => {
+          node[name] = new Proxy({
+            __offset: begin,
+            __offsetEnd: offset,
+            __bytes: offset - begin,
+            __children: Array.from(new Array(length)),
+          }, NodeRootProxyHandlers);
+          output.forEach(finalize => finalize(node[name].__children, buffer));
+        });
+      }
+    },
+    create: (gl, ...input) => {
+      const nodes = [];
+      const bytes = build(0, input, nodes);
+      const cpuBuffer = new ArrayBuffer(bytes);
+      const gpuBuffer = gl.createBuffer();
+      gl.bindBuffer(gl.UNIFORM_BUFFER, gpuBuffer);
+      gl.bufferData(gl.UNIFORM_BUFFER, bytes, gl.DYNAMIC_DRAW);
+      gl.bindBuffer(gl.UNIFORM_BUFFER, null);
+      return new Proxy(nodes.reduce((node, finalize) => {
+        finalize(node.__children, cpuBuffer);
+        return node;
+      }, {
+        __offset: 0,
+        __offsetEnd: bytes,
+        __bytes: bytes,
+        __cpu: cpuBuffer,
+        __gpu: gpuBuffer,
+        __children: {},
+      }), NodeRootProxyHandlers);
+    },
   };
 }());
