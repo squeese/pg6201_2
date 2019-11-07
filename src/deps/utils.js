@@ -114,42 +114,23 @@ export const linkProgram = (gl, program) => {
   return program;
 };
 
-let activeProgram = null;
-export const createGenericProgram = (gl, { vertex, fragment, before, link, after }) => {
+export const createGenericProgram = (gl, { vert, frag, before, link, after }) => {
   const program = gl.createProgram();
-  gl.attachShader(program, loadShader(gl, gl.VERTEX_SHADER, vs));
-  gl.attachShader(program, loadShader(gl, gl.FRAGMENT_SHADER, fs));
+  gl.attachShader(program, loadShader(gl, gl.VERTEX_SHADER, vert));
+  gl.attachShader(program, loadShader(gl, gl.FRAGMENT_SHADER, frag));
   if (before) before(program);
   if (link) link(program);
   else linkProgram(gl, program);
-  if (after) after(program);
+  if (after) {
+    gl.useProgram(program);
+    after(program);
+    gl.useProgram(null);
+  }
   return {
     program,
-    use: () => 
-  }
-
-
-  const fn = () => {
-    if (activeProgram === program) return;
-    activeProgram = program;
-    gl.useProgram(program);
+    use: () => gl.useProgram(program),
+    dispose: () => gl.deleteProgram(program),
   };
-  fn.dispose = () => gl.deleteProgram(program);
-  fn.use = () => fn();
-  fn.locations = new Map();
-  const proxy = new Proxy(fn, {
-    get: (_, method) => (name, ...args) => {
-      let location = fn.locations.get(name);
-      if (!location) {
-        location = gl.getUniformLocation(program, name);
-        fn.locations.set(name, location);
-      }
-      fn();
-      gl[method](location, ...args);
-      return proxy;
-    },
-  });
-  return proxy;
 };
 
 export const createProgramUniformHelper = gl => {
@@ -174,37 +155,39 @@ export const createProgramUniformHelper = gl => {
 };
 
 export const createGenericMesh = (gl, { vertices, indices, normals }) => {
-  const vertexArray = gl.createVertexArray();
-  gl.bindVertexArray(vertexArray);
-  const fn = () => gl.bindVertexArray(vertexArray);
-  fn.vertexArray = vertexArray;
-  fn.vertexBuffer = gl.createBuffer();
-  gl.bindBuffer(gl.ARRAY_BUFFER, fn.vertexBuffer);
+  const mesh = {
+    vao: gl.createVertexArray(),
+    vertexBuffer: gl.createBuffer(),
+    normalBuffer: null,
+    indexBuffer: gl.createBuffer(),
+    count: indices.length,
+    bind: () => gl.bindVertexArray(mesh.vao),
+    dispose: () => {
+      gl.deleteBuffer(mesh.vertexBuffer);
+      if (mesh.normalBuffer)
+        gl.deleteBuffer(mesh.normalBuffer);
+      gl.deleteBuffer(mesh.indexBuffer);
+      gl.deleteVertexArray(mesh.vao);
+    },
+  };
+  gl.bindVertexArray(mesh.vao);
+  gl.bindBuffer(gl.ARRAY_BUFFER, mesh.vertexBuffer);
   gl.bufferData(gl.ARRAY_BUFFER, vertices instanceof Float32Array ? vertices : new Float32Array(vertices), gl.STATIC_DRAW);
   gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
   gl.enableVertexAttribArray(0);
   if (normals) {
-    fn.normalBuffer = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, fn.normalBuffer);
+    mesh.normalBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, mesh.normalBuffer);
     gl.bufferData(gl.ARRAY_BUFFER, normals instanceof Float32Array ? normals : new Float32Array(normals), gl.STATIC_DRAW);
     gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 0, 0);
     gl.enableVertexAttribArray(1);
   }
-  fn.indexBuffer = gl.createBuffer()
-  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, fn.indexBuffer);
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, mesh.indexBuffer);
   gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices instanceof Uint16Array ? indices : new Uint16Array(indices), gl.STATIC_DRAW);
   gl.bindVertexArray(null);
   gl.bindBuffer(gl.ARRAY_BUFFER, null);
   gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
-  fn.dispose = () => {
-    gl.deleteBuffer(fn.vertexBuffer);
-    if (fn.normalBuffer)
-      gl.deleteBuffer(fn.normalBuffer);
-    gl.deleteBuffer(fn.indexBuffer);
-    gl.deleteVertexArray(fn.vertexArray);
-  };
-  fn.count = indices.length;
-  return fn;
+  return mesh;
 };
 
 export const useCanvas = (app, canvas, options) => {
@@ -335,17 +318,14 @@ export const createUniformBufferObject = (function Closure() {
     rebuild(gl, lengths = {}) {
       if (this.glBuffer)
         this.dispose(gl);
+      this.offsets = {};
       this.views = {};
       this.lengths = lengths;
       const row = this.description.slice(0);
       this.size = primeDescriptors(row, 0, lengths);
       this.arrayBuffer = new ArrayBuffer(this.size);
       this.glBuffer = gl.createBuffer();
-      row.map(fn => fn(this.arrayBuffer, this.views));
-      gl.bindBuffer(gl.UNIFORM_BUFFER, this.glBuffer);
-      gl.bufferData(gl.UNIFORM_BUFFER, this.size, gl.DYNAMIC_DRAW);
-      gl.bindBuffer(gl.UNIFORM_BUFFER, null);
-      gl.bindBufferBase(gl.UNIFORM_BUFFER, this.index, this.glBuffer);
+      row.map(fn => fn(this.arrayBuffer, this.views, this.offsets));
     },
     dispose(gl) {
       gl.deleteBuffer(this.glBuffer);
@@ -353,12 +333,13 @@ export const createUniformBufferObject = (function Closure() {
   };
 
   const UniformBufferObjectProxyHandlers = {
-    get: (obj, key) => obj[key] || obj.views[key],
+    get: (obj, key) => obj.hasOwnProperty(key) ? obj[key] : obj.views[key],
   };
 
   const descriptionTerminal = bytes => name => (offset, space, _, chain) => {
     const begin = offset + (space < Math.min(16, bytes) ? space : 0);
-    return chain(begin + bytes, (buffer, views) => {
+    return chain(begin + bytes, (buffer, views, offsets) => {
+      offsets[name] = begin;
       views[name] = new Float32Array(buffer, begin, bytes / 4);
     });
   };
@@ -372,6 +353,11 @@ export const createUniformBufferObject = (function Closure() {
     vec4: descriptionTerminal(16),
     mat3: descriptionTerminal(48),
     mat4: descriptionTerminal(64),
+    padUniformBufferOffsetAlignment: () => (offset, space, args, chain) => {
+      const align = 256; // gl.getParameter(gl.UNIFORM_BUFFER_OFFSET_ALIGNMENT);
+      const bytes = (align - offset % align) % align;
+      return chain(offset + bytes, () => console.log('skipped', bytes));
+    },
     array: (name, _, entries) => (offset, space, args, chain) => {
       offset += space % 16;
       const count = args[name];
@@ -381,14 +367,18 @@ export const createUniformBufferObject = (function Closure() {
         offset = primeDescriptors(row, offset, args);
         children.splice(i * entries.length, entries.length, ...row);
       }
-      return chain(offset, (buffer, views) => {
+      return chain(offset, (buffer, views, offsets) => {
+        offsets[name] = Array.from(Array(count)).map(() => ({}));
         views[name] = Array.from(Array(count)).map(() => ({}));
-        children.forEach((child, i) => child(buffer, views[name][i / entries.length | 0]));
+        children.forEach((child, i) => {
+          const index = i / entries.length | 0;
+          child(buffer, views[name][index], offsets[name][index]);
+        });
       });
     },
   };
 
-  return function createUniformBufferObject(gl, index, descriptor) {
+  return function createUniformBufferObject(gl, descriptor) {
     const lengths = {};
     descriptor(new Proxy(() => {}, {
       get: (fn, key) => key !== 'array' ? fn : (name, count) => {
@@ -397,7 +387,6 @@ export const createUniformBufferObject = (function Closure() {
     }));
     const ubo = Object.create(UniformBufferObjectProxyBase);
     ubo.description = descriptor(uniformDescriptors);
-    ubo.index = index;
     ubo.rebuild(gl, lengths);
     return new Proxy(ubo, UniformBufferObjectProxyHandlers);
   };

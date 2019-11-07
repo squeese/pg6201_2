@@ -5,8 +5,11 @@ import * as Options from './deps/Options';
 // import GUI from './GUIWebGL';
 // import App from './AppThreeJS';
 // import App from './AppWebGL';
-import GUI from './TextureProjection/GUI';
-import App from './TextureProjection/App';
+// import GUI from './TextureProjection/GUI';
+// import App from './TextureProjection/App';
+
+import App from './BufferTest/App';
+const GUI = () => null;
 
 const GlobalStyle = createGlobalStyle`
   body {

@@ -18,7 +18,7 @@ const CameraOptions = () => (
 );
 
 const PointLightOptions = () => (
-  <List header="Point Lights" name="points" min={0} max={2}>
+  <List header="Point Lights" name="points" min={1} max={2}>
     <Options.InputVector header="Ambient" name="ambient" value={[0.05, 0.05, 0.05]} min={0} max={1} step={0.01} />
     <Options.InputVector header="Diffuse" name="diffuse" value={[0.7, 0.7, 0.7]} min={0} max={1} step={0.01} />
     <Options.InputVector header="Specular" name="specular" value={[0.7, 0.7, 0.7]} min={0} max={1} step={0.01} />
@@ -27,7 +27,7 @@ const PointLightOptions = () => (
 );
 
 const LightBoxOptions = () => (
-  <List header="Box Lights" name="boxes" min={0} max={4}>
+  <List header="Box Lights" name="boxes" min={1} max={4}>
     <Options.InputVector header="Ambient" name="ambient" value={[0.05, 0.05, 0.05]} min={0} max={1} step={0.01} />
     <Options.InputVector header="Diffuse" name="diffuse" value={[0.7, 0.7, 0.7]} min={0} max={1} step={0.01} />
     <Options.InputVector header="Specular" name="specular" value={[0.7, 0.7, 0.7]} min={0} max={1} step={0.01} />
@@ -56,8 +56,8 @@ export const useGUIChanges = (app, canvas) => {
   }), [canvas, update]);
 
   useEffect(function OptionsLightChange() {
-    console.log('adf');
     if (app.UBOLights.lengths.points !== points.length || app.UBOLights.lengths.boxes !== boxes.length) {
+      console.log('adf');
       app.boxProgram = utils.createGenericProgram(app.gl, Vertex({ points, boxes }), Fragment({ points, boxes }));
       app.UBOLights.rebuild(app.gl, {
         points: points.length,
@@ -78,6 +78,7 @@ export const useGUIChanges = (app, canvas) => {
       // utils.copy(app.UBOLights.boxes[index].transform, box.transform);
     });
     app.UBOLights.upload(app.gl);
+    console.log('upload');
   }, [app, points, boxes]);
 
   utils.useDeltaAnimationFrame(60, dt => {
