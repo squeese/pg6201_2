@@ -1,4 +1,4 @@
-import React, { Fragment, createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
+import React, { Fragment, createContext, useContext, useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import styled from 'styled-components';
 
 export const Context = createContext({});
@@ -45,7 +45,6 @@ export const Provider = ({ children, preset = null }) => {
     setState(proxy.current());
   }, [ preset ]);
   const update = useCallback((dispatcher, who) => {
-    // console.log('update()', who);
     updater.current(dispatcher);
   }, [ updater ]);
   return (
@@ -178,16 +177,13 @@ export const Dropdown = ({ name, value, children }) => {
 
 export const Dictionary = ({ name, children }) => {
   const { ready, state, update } = useContext(Context);
-  const active = useRef(true);
   useEffect(() => {
     update(proxy => proxy[name].read() === undefined && proxy[name].set({}));
     return () => {
-      active.current = false;
       update(proxy => proxy[name].delete());
     };
   }, [ update, name ]);
   const mmUpdate = useCallback(dispatcher => {
-    if (!active.current) return;
     update(proxy => {
       try {
         dispatcher(proxy[name]);
@@ -196,7 +192,7 @@ export const Dictionary = ({ name, children }) => {
         dispatcher(proxy[name]);
       }
     });
-  }, [ update, active, name ]);
+  }, [ update, name ]);
   return (
     <Context.Provider
       value={{ ready, update: mmUpdate, state: state[name] || {}}}
@@ -208,7 +204,6 @@ export const Dictionary = ({ name, children }) => {
 export const List = ({ name, children, min = 0, max = 10 }) => {
   const [ list, setList ] = useState(Array.from(Array(min)).map((_, i) => i));
   const { ready, state, update } = useContext(Context);
-  const active = useRef(true);
 
   useEffect(() => {
     update(proxy => {
@@ -216,7 +211,6 @@ export const List = ({ name, children, min = 0, max = 10 }) => {
       else setList(proxy[name].read().map((_, i) => i));
     });
     return () => {
-      active.current = false;
       update(proxy => proxy[name].delete());
     };
   }, [update, name]);
@@ -236,7 +230,6 @@ export const List = ({ name, children, min = 0, max = 10 }) => {
   }, [state, name]);
 
   const mmUpdate = useCallback(dispatcher => {
-    if (!active.current) return;
     update(proxy => {
       try {
         dispatcher(proxy[name]);
@@ -250,7 +243,7 @@ export const List = ({ name, children, min = 0, max = 10 }) => {
         return proxy[name].read().map((_, i) => i);
       });
     });
-  }, [update, active, name]);
+  }, [update, name]);
 
   const increment = () => (list.length < max) && setList([...list, list.length]);
   const decrement = () => (list.length > min) && setList(list.slice(0, -1));
@@ -262,9 +255,106 @@ export const List = ({ name, children, min = 0, max = 10 }) => {
   );
 };
 
+export const InputType = ({ name, children }) => {
+  const { state, update, ...context } = useContext(Context);
+  const value = useMemo(() => React.Children.map(children, child => child.props.name), [children]);
+  const [ selected, setSelected ] = useState(state.type || value[0]);
+
+  const items = useMemo(() => {
+    const items = {};
+    React.Children.map(children, child => {
+      items[child.props.name] = child;
+    });
+    return items;
+  }, [children]);
+
+  /*
+  useEffect(() => setSelected(value => {
+    console.log('??', value, state.type);
+    return state.type || value;
+  }), [state.type]);
+  */
+
+  const dropdownUpdate = useCallback(dispatcher => setSelected(selected => {
+    dispatcher({
+      type: {
+        read: () => selected,
+        delete: () => {},
+        set: value => {
+          selected = value;
+        },
+      }
+    });
+    return selected;
+  }), []);
+
+  const itemUpdate = useCallback(dispatcher => {
+    update(proxy => {
+      try {
+        proxy.type = selected;
+        dispatcher(proxy.value);
+      } catch(e) {
+        proxy.value = {};
+        dispatcher(proxy.value);
+      }
+    });
+  }, [update, selected]);
+
+  return (
+    <Fragment>
+      <Label>Type</Label>
+      <Context.Provider value={{ state:{ type: state.type || selected }, update:dropdownUpdate, ...context }}>
+        <InputDropdown name="type" value={value} />
+      </Context.Provider>
+      <Context.Provider value={{ state: state.value || {}, update:itemUpdate, ...context }}>
+        {items[selected]}
+      </Context.Provider>
+    </Fragment>
+  );
+};
+
+export const InputTypeItem = ({ children }) => children;
+
+export const InputList = ({ header, name, min, max, children }) => {
+  const { state, update } = useContext(Context);
+  const visible = (!state[`__${name}__minimized`]);
+  const toggle = () => update(proxy => {
+    const val = proxy[`__${name}__minimized`].read();
+    proxy[`__${name}__minimized`] = !val;
+  });
+  return (
+    <List name={name} min={min} max={max}>
+      {({ increment, decrement, list }) => (
+        <Fragment>
+          <Header>
+            <button onClick={toggle}>
+              <span style={{ display: 'inline-block', transform: 'rotate(180deg) translate3d(0,-1px,0)'}}>
+                {visible ? "▲" : "◀"}
+              </span>
+              <span style={{ paddingLeft: '4px' }}>{header}</span>
+              <span style={{ float: 'right' }}>{list.length}/{max}</span>
+            </button>
+            <div style={{ flex: '0 1 48px', display: 'flex' }}>
+              <button style={{ flex: '1 0 50%' }} onClick={increment} disabled={!visible}>+</button>
+              <button style={{ flex: '1 0 50%' }} onClick={decrement} disabled={!visible}>-</button>
+            </div>
+          </Header>
+          {list.map(index => (
+            <Wrapper key={index} style={{ display: visible ? 'grid' : 'none'}}>
+              <Dictionary name={index}>
+                <ListDivider />
+                {children}
+              </Dictionary>
+            </Wrapper>
+          ))}
+        </Fragment>
+      )}
+    </List>
+  );
+};
+
 export const Vector = ({ name, value = [0, 0, 0], children, validate = noop, ...props }) => {
   const { ready, state, update } = useContext(Context);
-  const active = useRef(true);
   const values = useRef(value);
   if (values.current.length !== value.length || values.current.reduce((s, v, i) => (s || value[i] !== v), false)) {
     values.current = value;
@@ -273,13 +363,11 @@ export const Vector = ({ name, value = [0, 0, 0], children, validate = noop, ...
   useEffect(() => {
     update(proxy => proxy[name].read() === undefined && proxy[name].set(values.current));
     return () => {
-      active.current = false;
       update(proxy => proxy[name].delete());
     };
   }, [ update, name, values ]);
 
   const mmUpdate = useCallback(dispatcher => {
-    if (!active.current) return;
     update(proxy => {
       try {
         dispatcher(proxy[name]);
@@ -289,12 +377,61 @@ export const Vector = ({ name, value = [0, 0, 0], children, validate = noop, ...
       }
       validate(proxy[name]);
     });
-  }, [ update, name, active, validate, values ]);
+  }, [ update, name, validate, values ]);
 
   return (
     <Context.Provider value={{ ready, update: mmUpdate, state: state[name] || [] }}>
       {value.map(children)}
     </Context.Provider>
+  );
+};
+
+export const ResetRow = ({ label, misc = null, children }) => {
+  const reset = React.useMemo(() => {
+    const values = {};
+    React.Children.map(children, child => {
+      values[child.props.name] = child.props.value;
+    });
+    return <Reset values={values} />;
+  }, [children]);
+  return (
+    <Fragment>
+      <Label>
+        {label}
+        {misc && <Mini>{misc}</Mini>}
+        {reset}
+      </Label>
+      <Row>
+        {children}
+      </Row>
+    </Fragment>
+  );
+};
+
+const Mini = ({ children }) => <span style={{ paddingLeft: '2px', fontSize: '0.6rem', color: '#568' }}>({children})</span>
+
+export const Section = ({ header, name, children }) => {
+  const { state, update } = useContext(Context);
+  const visible = (state[name] && state[name].__minimized !== true);
+  const toggle = () => update(proxy => {
+    proxy[name].__minimized = !proxy[name].__minimized.read();
+  });
+  return (
+    <Dictionary name={name}>
+      <Header>
+        <button onClick={toggle}>
+          <span style={{ display: 'inline-block', transform: 'rotate(180deg) translate3d(0,-1px,0)'}}>
+            {visible ? "▲" : "◀"}
+          </span>
+          <span style={{ padding: '0 0 0 0.25rem'}}>
+            {header}
+          </span>
+        </button>
+      </Header>
+      <Wrapper style={{ display: visible ? 'grid' : 'none'}}>
+        {children}
+      </Wrapper>
+    </Dictionary>
   );
 };
 
@@ -380,6 +517,7 @@ export const Wrapper = styled.div`
   display: grid;
   grid-template-columns: 4fr 3fr; 
   padding: 0 1px 1px 0;
+  grid-column: 1 / 3;
 `;
 
 export const Header = styled.h1`
@@ -388,9 +526,12 @@ export const Header = styled.h1`
   color: #AAAA;
   grid-column: 1 / 3;
   margin: 0;
-  padding: 0.25rem 0 0 0.45rem;
+  padding: 0rem 0 0 0rem;
   display: flex;
   flex-direction: row;
+  & > button {
+    text-align: left;
+  }
   & > span {
     flex: 4 0 auto;
   }

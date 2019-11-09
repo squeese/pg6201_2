@@ -4,12 +4,21 @@ import { Context } from './Options';
 
 export const rad = deg => deg * Math.PI / 180;
 export const deg = rad => rad * 180 / Math.PI;
-export const loop = (arr, fn) => arr.map((v, i) => fn(i, v)).join("");
-export const fltstr = v => v % 1 === 0 ? `${v}.0` : v;
+export const loop = (arr, fn) => arr.map((v, i) => fn(i, v)).join("").trim();
 export const lerp = (a, b, t) => a + (b - a) * t;
-export const copy = (out, arr) => {
-  for (let i = 0; i < arr.length; i++) out[i] = arr[i];
+export const copy = (out, arr, offset = 0) => {
+  for (let i = 0; i < arr.length; i++) out[i + offset] = arr[i];
   return out;
+};
+
+/* eslint-disable-next-line no-extend-native */
+Number.prototype.floatString = function(v, b) {
+  return this % 1 === 0 ? `${this}.0` : this;
+};
+
+/* eslint-disable-next-line no-extend-native */
+Array.prototype.exclude = function(arr, fn) {
+  return arr.filter(v => !fn(v));
 };
 
 export const useFullscreenCanvas = (app, canvas, proxy) => {
@@ -99,6 +108,16 @@ export const useMouseCamera = (app, canvas) => {
     mat4.perspective(app.uCamera.projection(), ref.fov, window.innerWidth/window.innerHeight, 0.1, 100);
   }, [app, ref, proxy]);
 };
+
+/* eslint-disable react-hooks/exhaustive-deps */
+export const useChange = (skipfirst, fn, changes) => {
+  const ref = useRef(false);
+  useEffect(() => {
+    if (ref.current || !skipfirst) fn();
+    ref.current = true;
+  }, changes);
+};
+/* eslint-enable react-hooks/exhaustive-deps */
 
 export const loadShader = (gl, type, source) => {
   const shader = gl.createShader(type);
@@ -195,9 +214,10 @@ export const useDeltaAnimationFrame = (fps, fn) => {
       window.requestAnimationFrame(function frame(time) {
         if (!active) return;
         const elapsed = time - prev;
-        ref.current(elapsed / hz, elapsed, time);
-        prev = time;
-        window.requestAnimationFrame(frame);
+        if (ref.current(elapsed / hz, elapsed, time) !== false) {
+          prev = time;
+          window.requestAnimationFrame(frame);
+        }
       });
     });
     return () => {
@@ -337,6 +357,7 @@ export const UBO = (function UBOClosure() {
       return next(cursor + (alignment - cursor % alignment) % alignment, () => {});
     },
     array: (name, length, input) => (cursor, next) => {
+      // if (length === 0) return next(cursor, () => {});
       const output = [];
       const begin = cursor + (16 - cursor % 16) % 16;
       let offset = begin;
@@ -351,6 +372,18 @@ export const UBO = (function UBOClosure() {
             __children: Array.from(new Array(length)).map(() => ({})),
           }, NodeRootProxyHandlers);
           output.forEach((finalize, i) => finalize(node[name].__children[i / input.length | 0], buffer));
+          for (let i = 0; i < length; i++) {
+            let min = Number.POSITIVE_INFINITY;
+            let max = Number.NEGATIVE_INFINITY;
+            Object.keys(node[name].__children[i]).forEach(key => {
+              if (node[name].__children[i][key].__offset < min) min = node[name].__children[i][key].__offset;
+              if (node[name].__children[i][key].__offsetEnd > max) max = node[name].__children[i][key].__offsetEnd;
+            });
+            node[name].__children[i].__offset = min;
+            node[name].__children[i].__offsetEnd = max;
+            node[name].__children[i].__bytes = max - min;
+            // node[name].__children[i].__view = new Float32Array()
+          }
         });
       } else {
         for (let i = 0; i < length; i++)
