@@ -1,8 +1,5 @@
-import React, { useContext, useEffect } from 'react';
-import { mat4, quat, vec3 } from 'gl-matrix';
+import React, { useContext } from 'react';
 import * as Options from './../deps/Options';
-import * as utils from './../deps/utils';
-import { Vertex, Fragment } from './Shaders';
 
 const CameraOptions = () => (
   <Options.Dictionary name="camera">
@@ -17,18 +14,50 @@ const CameraOptions = () => (
   </Options.Dictionary>
 );
 
+const ParticleOptions = () => (
+  <Options.Dictionary name="particle">
+    <Options.Header>Particles</Options.Header>
+    <Options.InputInt header="Count" name="count" value={Math.pow(2, 17)} max={Math.pow(2, 22)} />
+    <Options.Label>
+      Duration <Mini>min/max</Mini>
+      <Reset values={{ minDuration: 1, maxDuration: 2 }} />
+    </Options.Label>
+    <Options.Row>
+      <Options.InputFloat name="minDuration" value={1} min={0} />
+      <Options.InputFloat name="maxDuration" value={2} min={1} />
+    </Options.Row>
+    <Options.Label>
+      Size <Mini>particle/room</Mini>
+      <Reset values={{ size: 1, roomSize: 3 }} />
+    </Options.Label>
+    <Options.Row>
+      <Options.InputFloat name="size" value={1} min={0.1} max={10} />
+      <Options.InputFloat name="roomSize" value={3} min={1} />
+    </Options.Row>
+    <Options.Label>
+      Alpha <Mini>lit/not-lit</Mini>
+      <Reset values={{ insideAlpha: 0.5, outsideAlpha: 0.01 }} />
+    </Options.Label>
+    <Options.Row>
+      <Options.InputFloat name="insideAlpha" value={0.5} min={0} max={1} step={0.01} />
+      <Options.InputFloat name="outsideAlpha" value={0.01} min={0} max={1} step={0.01} />
+    </Options.Row>
+    <Options.InputFloat header="Speed" name="speed" value={0.01} />
+  </Options.Dictionary>
+);
+
 const PointLightOptions = () => (
   <List header="Point Lights" name="points" min={1} max={2}>
     <Options.InputVector header="Ambient" name="ambient" value={[0.05, 0.05, 0.05]} min={0} max={1} step={0.01} />
     <Options.InputVector header="Diffuse" name="diffuse" value={[0.7, 0.7, 0.7]} min={0} max={1} step={0.01} />
     <Options.InputVector header="Specular" name="specular" value={[0.7, 0.7, 0.7]} min={0} max={1} step={0.01} />
+    <Options.InputFloat header="Highlight" name="highlight" value={32} min={0} step={0.5} />
     <Options.InputVector header="Position" name="position" value={[0.0, 1.0, 0.0]} step={0.1} />
   </List>
 );
 
 const LightBoxOptions = () => (
   <List header="Box Lights" name="boxes" min={1} max={4}>
-    <Options.InputVector header="Ambient" name="ambient" value={[0.05, 0.05, 0.05]} min={0} max={1} step={0.01} />
     <Options.InputVector header="Diffuse" name="diffuse" value={[0.7, 0.7, 0.7]} min={0} max={1} step={0.01} />
     <Options.InputVector header="Specular" name="specular" value={[0.7, 0.7, 0.7]} min={0} max={1} step={0.01} />
     <Options.InputVector header="Position" name="position" value={[0.0, 1.0, 0.0]} step={0.1} />
@@ -38,64 +67,11 @@ const LightBoxOptions = () => (
   </List>
 );
 
-export const useGUIChanges = (app, canvas) => {
-  const { update, state:{ camera, points, boxes }, proxy } = useContext(Options.Context);
-  const ref = React.useRef({
-    rotation: utils.copy([], camera.rotation),
-    offset: camera.offset,
-    fov: camera.fov * Math.PI / 180,
-    upwards: [],
-  }).current;
-
-  useEffect(() => utils.mouseMoveHandlerGLMatrix(canvas.current, delta => {
-    update(({ camera }) => quat.multiply(camera.rotation, camera.rotation.read(), delta), 'mousemove');
-  }), [canvas, update]);
-
-  useEffect(() => utils.mouseWheelHandler(canvas.current, delta => {
-    update(({ camera }) => camera.offset.set(camera.offset.read() + delta * 0.1));
-  }), [canvas, update]);
-
-  useEffect(function OptionsLightChange() {
-    if (app.UBOLights.lengths.points !== points.length || app.UBOLights.lengths.boxes !== boxes.length) {
-      console.log('adf');
-      app.boxProgram = utils.createGenericProgram(app.gl, Vertex({ points, boxes }), Fragment({ points, boxes }));
-      app.UBOLights.rebuild(app.gl, {
-        points: points.length,
-        boxes: boxes.length,
-      });
-    }
-    points.forEach((point, index) => {
-      utils.copy(app.UBOLights.points[index].ambient, point.ambient);
-      utils.copy(app.UBOLights.points[index].diffuse, point.diffuse);
-      utils.copy(app.UBOLights.points[index].specular, point.specular);
-      utils.copy(app.UBOLights.points[index].position, point.position);
-    });
-    boxes.forEach((box, index) => {
-      utils.copy(app.UBOLights.boxes[index].ambient, box.ambient);
-      utils.copy(app.UBOLights.boxes[index].diffuse, box.diffuse);
-      utils.copy(app.UBOLights.boxes[index].specular, box.specular);
-      // utils.copy(app.UBOLights.boxes[index].direction, box.direction);
-      // utils.copy(app.UBOLights.boxes[index].transform, box.transform);
-    });
-    app.UBOLights.upload(app.gl);
-    console.log('upload');
-  }, [app, points, boxes]);
-
-  utils.useDeltaAnimationFrame(60, dt => {
-    ref.offset = utils.lerp(ref.offset, proxy.state.camera.offset, 0.05 * dt);
-    ref.fov = utils.lerp(ref.fov, proxy.state.camera.fov * Math.PI / 180, 0.05 * dt);
-    quat.slerp(ref.rotation, ref.rotation, proxy.state.camera.rotation, 0.05 * dt);
-    vec3.transformQuat(app.UBOCamera.position, [0, 0, ref.offset], ref.rotation);
-    vec3.transformQuat(ref.upwards, [0, 1, 0], ref.rotation);
-    mat4.lookAt(app.UBOCamera.view, app.UBOCamera.position, [0, 0, 0], ref.upwards);
-    mat4.perspective(app.UBOCamera.projection, ref.fov, window.innerWidth/window.innerHeight, 0.1, 100);
-  }, [app, ref, proxy]);
-};
-
 export default () => (
   <Options.Container>
     <Options.Wrapper>
       <CameraOptions />
+      <ParticleOptions />
       <PointLightOptions />
       <LightBoxOptions />
     </Options.Wrapper>

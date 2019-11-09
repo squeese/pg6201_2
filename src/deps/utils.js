@@ -1,87 +1,103 @@
-import { useEffect, useRef } from 'react';
-import { Quaternion, Euler } from './three.module';
-import { quat, mat4 } from 'gl-matrix';
+import { useEffect, useRef, useContext, useCallback } from 'react';
+import { vec3, quat, mat4 } from 'gl-matrix';
+import { Context } from './Options';
 
+export const rad = deg => deg * Math.PI / 180;
+export const deg = rad => rad * 180 / Math.PI;
+export const loop = (arr, fn) => arr.map((v, i) => fn(i, v)).join("");
+export const fltstr = v => v % 1 === 0 ? `${v}.0` : v;
 export const lerp = (a, b, t) => a + (b - a) * t;
 export const copy = (out, arr) => {
   for (let i = 0; i < arr.length; i++) out[i] = arr[i];
   return out;
 };
 
-export const mouseMoveHandlerThreeJS = (node, handler) => {
-  const onMouseDownHandler = ({ clientX, clientY }) => {
-    const change = new Quaternion();
-    const euler = new Euler(0, 0, 0);
-    const mouseMove = e => {
-      const dx = clientX - e.clientX;
-      const dy = clientY - e.clientY;
-      clientX = e.clientX;
-      clientY = e.clientY;
-      euler.set(dy * 0.0, dx * 0.01, 0, 'XYZ');
-      change.setFromEuler(euler);
-      handler(change);
-    }
-    node.addEventListener("mousemove", mouseMove);
-    node.addEventListener("mouseup", function mouseUp() {
-      node.removeEventListener("mousemove", mouseMove);
-      node.removeEventListener("mouseup", mouseUp);
-    });
-  };
-  node.addEventListener("mousedown", onMouseDownHandler);
-  return () => node.removeEventListener("mousedown", onMouseDownHandler);
+export const useFullscreenCanvas = (app, canvas, proxy) => {
+  useEffect(function Initialize() {
+    canvas.current.width = window.innerWidth;
+    canvas.current.height = window.innerHeight;
+    app.gl = canvas.current.getContext('webgl2');
+    app.gl.viewport(0, 0, window.innerWidth, window.innerHeight);
+  }, [app, canvas]);
+  useEffect(function ResizeEvent() {
+    let timer;
+    const onWindowResize = e => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        canvas.current.width = window.innerWidth;
+        canvas.current.height = window.innerHeight;
+        app.gl.viewport(0, 0, window.innerWidth, window.innerHeight);
+        const aspect = window.innerWidth / window.innerHeight;
+        mat4.perspective(app.uCamera.projection(), rad(proxy.state.camera.fov), aspect, 0.1, 100);
+      }, 250);
+    } ;
+    window.addEventListener("resize", onWindowResize, { passive: true });
+    return () => window.removeEventListener("resize", onWindowResize);
+  }, [app, canvas, proxy]);
 };
 
-export const mouseMoveHandlerGLMatrix = (node, handler) => {
-  const onMouseDownHandler = ({ clientX, clientY }) => {
-    const change = quat.create();
-    const roll = (window.innerWidth / 2 - clientX) / (window.innerWidth / 2);
-    const pitch = 1 - Math.abs(roll);
-    let dx = 0;
-    let dy = 0;
-    const mouseMove = e => {
-      if (dx === 0) {
-        window.requestAnimationFrame(() => {
-          handler(quat.fromEuler(change, dy / 4 * pitch, dx / 4, dy / 4 * roll), e);
+export const useMouseCamera = (app, canvas) => {
+  const { update, proxy } = useContext(Context);
+  const ref = useRef({
+    rotation: copy([], proxy.state.camera.rotation),
+    offset: proxy.state.camera.offset,
+    fov: proxy.state.camera.fov * Math.PI / 180,
+    upwards: [],
+  }).current;
+  useEffect(() => {
+    const node = canvas.current;
+    const onMouseDownHandler = ({ clientX, clientY }) => {
+      const change = quat.create();
+      const roll = (window.innerWidth / 2 - clientX) / (window.innerWidth / 2);
+      const pitch = 1 - Math.abs(roll);
+      let dx = 0, dy = 0;
+      const mouseMove = e => {
+        if (dx === 0) window.requestAnimationFrame(() => {
+          quat.fromEuler(change, dy / 4 * pitch, dx / 4, dy / 4 * roll);
+          update(({ camera }) => quat.multiply(camera.rotation, camera.rotation.read(), change));
           dx = 0;
           dy = 0;
         });
-      }
-      dx += clientX - e.clientX;
-      dy += clientY - e.clientY;
-      clientX = e.clientX;
-      clientY = e.clientY;
-    }
-    node.addEventListener("mousemove", mouseMove);
-    node.addEventListener("mouseup", function mouseUp() {
-      node.removeEventListener("mousemove", mouseMove);
-      node.removeEventListener("mouseup", mouseUp);
-    });
-  };
-  node.addEventListener("mousedown", onMouseDownHandler);
-  return () => node.removeEventListener("mousedown", onMouseDownHandler);
-};
+        dx += clientX - e.clientX;
+        dy += clientY - e.clientY;
+        clientX = e.clientX;
+        clientY = e.clientY;
+      };
+      node.addEventListener("mousemove", mouseMove);
+      node.addEventListener("mouseup", function mouseUp() {
+        node.removeEventListener("mousemove", mouseMove);
+        node.removeEventListener("mouseup", mouseUp);
+      });
+    };
+    let frame = null;
+    let deltaScroll = 0;
+    const onScrollWheelHandler = e => {
+      deltaScroll += e.deltaY * 0.01;
+      if (frame || Math.abs(deltaScroll) < 0.25) return;
+      frame = window.requestAnimationFrame(() => {
+        const amount = deltaScroll | 0;
+        deltaScroll -= amount;
+        update(({ camera }) => camera.offset.set(camera.offset.read() + amount * 0.1));
+        frame = null;
+      });
+    };
+    node.addEventListener("mousedown", onMouseDownHandler);
+    node.addEventListener("wheel", onScrollWheelHandler, { passive: true });
+    return () => {
+      node.removeEventListener("mousedown", onMouseDownHandler);
+      node.removeEventListener("wheel", onScrollWheelHandler);
+    };
+  }, [canvas, update]);
 
-export const mouseWheelHandler = (node, handler) => {
-  let deltaScroll = 0;
-  let frame = null;
-  const onScrollWheelHandler = e => {
-    deltaScroll += e.deltaY * 0.01;
-    if (frame || Math.abs(deltaScroll) < 0.25) return;
-    frame = window.requestAnimationFrame(() => {
-      const amount = deltaScroll | 0;
-      deltaScroll -= amount;
-      handler(amount)      
-      frame = null;
-    });
-  };
-  node.addEventListener("wheel", onScrollWheelHandler, { passive: true });
-  return () => node.removeEventListener("wheel", onScrollWheelHandler);
-};
-
-export const windowResize = handler => {
-  const onWindowResize = e => handler(window.innerWidth, window.innerHeight, e);
-  window.addEventListener("resize", onWindowResize, { passive: true });
-  return () => window.removeEventListener("resize", onWindowResize);
+  return useCallback(dt => {
+    ref.offset = lerp(ref.offset, proxy.state.camera.offset, 0.05 * dt);
+    ref.fov = lerp(ref.fov, proxy.state.camera.fov * Math.PI / 180, 0.05 * dt);
+    quat.slerp(ref.rotation, ref.rotation, proxy.state.camera.rotation, 0.05 * dt);
+    vec3.transformQuat(app.uCamera.position(), [0, 0, ref.offset], ref.rotation);
+    vec3.transformQuat(ref.upwards, [0, 1, 0], ref.rotation);
+    mat4.lookAt(app.uCamera.view(), app.uCamera.position(), [0, 0, 0], ref.upwards);
+    mat4.perspective(app.uCamera.projection(), ref.fov, window.innerWidth/window.innerHeight, 0.1, 100);
+  }, [app, ref, proxy]);
 };
 
 export const loadShader = (gl, type, source) => {
@@ -118,40 +134,20 @@ export const createGenericProgram = (gl, { vert, frag, before, link, after }) =>
   const program = gl.createProgram();
   gl.attachShader(program, loadShader(gl, gl.VERTEX_SHADER, vert));
   gl.attachShader(program, loadShader(gl, gl.FRAGMENT_SHADER, frag));
-  if (before) before(program);
-  if (link) link(program);
-  else linkProgram(gl, program);
-  if (after) {
-    gl.useProgram(program);
-    after(program);
-    gl.useProgram(null);
-  }
-  return {
+  const ctx = {
     program,
     use: () => gl.useProgram(program),
     dispose: () => gl.deleteProgram(program),
   };
-};
-
-export const createProgramUniformHelper = gl => {
-  const handler = {
-    get: (location, fn) => (...args) => gl[fn](location, ...args),
-  };
-  const wmap = new WeakMap();
-  return (program, name) => {
-    let map = wmap.get(program);
-    if (!map) {
-      wmap.set(program, new Map());
-      map = wmap.get(program);
-    }
-    let proxy = map.get(name);
-    if (!proxy) {
-      const location = gl.getUniformLocation(program, name);
-      map.set(name, new Proxy(location, handler));
-      proxy = map.get(name);
-    }
-    return proxy;
+  if (before) before.call(ctx, program);
+  if (link) link.call(ctx, program);
+  else linkProgram(gl, program);
+  if (after) {
+    gl.useProgram(program);
+    after.call(ctx, program);
+    gl.useProgram(null);
   }
+  return ctx;
 };
 
 export const createGenericMesh = (gl, { vertices, indices, normals }) => {
@@ -190,28 +186,6 @@ export const createGenericMesh = (gl, { vertices, indices, normals }) => {
   return mesh;
 };
 
-export const useCanvas = (app, canvas, options) => {
-  useEffect(function Initialize() {
-    canvas.current.width = window.innerWidth;
-    canvas.current.height = window.innerHeight;
-    app.gl = canvas.current.getContext('webgl2');
-    app.gl.viewport(0, 0, window.innerWidth, window.innerHeight);
-  }, [app, canvas]);
-
-  useEffect(function ResizeEvent() {
-    let timer;
-    return windowResize((x, y) => {
-      clearTimeout(timer);
-      timer = setTimeout(() => {
-        canvas.current.width = x;
-        canvas.current.height = y;
-        app.gl.viewport(0, 0, x, y);
-        mat4.perspective(app.UBOCamera.projection, options.camera.fov.read() * Math.PI/180, x/y, 0.1, 100);
-      }, 250);
-    });
-  }, [app, canvas, options]);
-};
-
 export const useDeltaAnimationFrame = (fps, fn) => {
   const ref = useRef(fn);
   useEffect(() => {
@@ -227,7 +201,6 @@ export const useDeltaAnimationFrame = (fps, fn) => {
       });
     });
     return () => {
-      console.log('oO');
       active = false;
     };
   }, [fps, ref]);
@@ -287,102 +260,6 @@ export const createFlatCubeMesh = (size = 1, CW = false) => ({
     20, 21, 22, 20, 22, 23,
   ]),
 });
-
-export const createUniformBufferObject = (function Closure() {
-  const primeDescriptors = (entries, offset, args) => {
-    for (let i = 0; i < entries.length; i++)
-      /* eslint-disable-next-line no-loop-func */
-      entries[i] = entries[i](offset, 16 - offset % 16, args, (step, done) => {
-        offset = step;
-        return done;
-      });
-    return offset + (16 - offset % 16) % 16;
-  };
-
-  const UniformBufferObjectProxyBase = {
-    rebuild(gl, lengths = {}) {
-      if (this.glBuffer)
-        this.dispose(gl);
-      this.offsets = {};
-      this.views = {};
-      this.lengths = lengths;
-      const row = this.description.slice(0);
-      this.size = primeDescriptors(row, 0, lengths);
-      this.arrayBuffer = new ArrayBuffer(this.size);
-      this.glBuffer = gl.createBuffer();
-      row.map(fn => fn(this.arrayBuffer, this.views, this.offsets));
-      gl.bindBuffer(gl.UNIFORM_BUFFER, this.glBuffer);
-      gl.bufferData(gl.UNIFORM_BUFFER, this.size, gl.DYNAMIC_DRAW);
-      gl.bindBuffer(gl.UNIFORM_BUFFER, null);
-    },
-    upload(gl) {
-      gl.bindBuffer(gl.UNIFORM_BUFFER, this.glBuffer);
-      gl.bufferSubData(gl.UNIFORM_BUFFER, 0, this.arrayBuffer);
-    },
-    dispose(gl) {
-      gl.deleteBuffer(this.glBuffer);
-    }
-  };
-
-  const UniformBufferObjectProxyHandlers = {
-    get: (obj, key) => obj[key] !== undefined ? obj[key] : obj.views[key],
-  };
-
-  const descriptionTerminal = bytes => name => (offset, space, _, chain) => {
-    const begin = offset + (space < Math.min(16, bytes) ? space : 0);
-    return chain(begin + bytes, (buffer, views, offsets) => {
-      offsets[name] = begin;
-      views[name] = new Float32Array(buffer, begin, bytes / 4);
-    });
-  };
-
-  const uniformDescriptors = {
-    float: descriptionTerminal(4),
-    int: descriptionTerminal(4),
-    bool: descriptionTerminal(4),
-    vec2: descriptionTerminal(8),
-    vec3: descriptionTerminal(12),
-    vec4: descriptionTerminal(16),
-    mat3: descriptionTerminal(48),
-    mat4: descriptionTerminal(64),
-    padUniformBufferOffsetAlignment: () => (offset, space, args, chain) => {
-      const align = 256; // gl.getParameter(gl.UNIFORM_BUFFER_OFFSET_ALIGNMENT);
-      const bytes = (align - offset % align) % align;
-      return chain(offset + bytes, () => {});
-    },
-    array: (name, _, entries) => (offset, space, args, chain) => {
-      offset += space % 16;
-      const count = args[name];
-      const children = Array(count * entries.length).fill(0);
-      for (let i = 0; i < count; i++) {
-        const row = entries.slice(0);
-        offset = primeDescriptors(row, offset, args);
-        children.splice(i * entries.length, entries.length, ...row);
-      }
-      return chain(offset, (buffer, views, offsets) => {
-        offsets[name] = Array.from(Array(count)).map(() => ({}));
-        views[name] = Array.from(Array(count)).map(() => ({}));
-        children.forEach((child, i) => {
-          const index = i / entries.length | 0;
-          child(buffer, views[name][index], offsets[name][index]);
-        });
-      });
-    },
-  };
-
-  return function createUniformBufferObject(gl, descriptor) {
-    const lengths = {};
-    descriptor(new Proxy(() => {}, {
-      get: (fn, key) => key !== 'array' ? fn : (name, count) => {
-        lengths[name] = count;
-      },
-    }));
-    const ubo = Object.create(UniformBufferObjectProxyBase);
-    ubo.description = descriptor(uniformDescriptors);
-    ubo.rebuild(gl, lengths);
-    return new Proxy(ubo, UniformBufferObjectProxyHandlers);
-  };
-}());
 
 export const UBO = (function UBOClosure() {
   const build = (offset, input, output) => {
@@ -504,9 +381,9 @@ export const UBO = (function UBOClosure() {
         __offset: 0,
         __offsetEnd: bytes,
         __bytes: bytes,
+        __children: {},
         __cpu: cpuBuffer,
         __gpu: gpuBuffer,
-        __children: {},
       }), NodeRootProxyHandlers);
     },
   };

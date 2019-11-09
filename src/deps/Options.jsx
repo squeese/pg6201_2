@@ -31,8 +31,13 @@ export const Provider = ({ children, preset = null }) => {
     setState(proxy.current());
     updater.current = dispatcher => {
       dispatcher(proxy.current);
-      debounce(() => setState(proxy.current()));
-      // setState(proxy.current());
+      setState(state => {
+        if (state !== proxy.current.state) {
+          // previous.current = state;
+          return proxy.current.state;
+        }
+        return state;
+      });
     };
   }, [ proxy, debounce ]);
   useEffect(() => {

@@ -37,7 +37,7 @@ render((
     <GlobalStyle />
     <GUI />
     <Options.Context.Consumer>
-      {({ ready, proxy }) => ready && <App options={proxy} />}
+      {({ ready, state, proxy }) => ready && <App options={state} proxy={proxy} />}
     </Options.Context.Consumer>
     <Options.Context.Consumer>
       {({ ready, state }) => {

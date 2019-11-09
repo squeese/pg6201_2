@@ -1,97 +1,186 @@
 import React, { useRef, useEffect } from 'react';
+import { mat4, vec3 } from 'gl-matrix';
+import { Matrix4 } from 'three';
 import * as utils from './../deps/utils';
 import * as shader from './Shaders';
-import { useGUIChanges } from './GUI';
+import * as particle from './ParticleSystem';
 
-// in vec3 Bn;     // worldBinormal, right (x)
-// in vec3 Tn;     // worldTangent, up (y)
-// in vec3 Nn;     // worldNormal, forward (z)
-// vec3 normal;
-// vec3 L = normalize(In.lightVec.xyz);
-// vec3 V = normalize(In.eyeVec.xyz);
-// bring vectors to the same space when doing math on then, worldspace, object space etc..
+const createObjectProgram = (gl, proxy) => utils.createGenericProgram(gl, {
+  vert: shader.VERTEX_SHADER_SOURCE_OBJECT(proxy.state),
+  frag: shader.FRAGMENT_SHADER_SOURCE_OBJECT(proxy.state),
+  after: program => {
+    gl.uniformBlockBinding(program, gl.getUniformBlockIndex(program, 'Camera'), 0);
+    gl.uniformBlockBinding(program, gl.getUniformBlockIndex(program, 'LightDirections'), 1);
+    gl.uniformBlockBinding(program, gl.getUniformBlockIndex(program, 'LightColors'), 2);
+  },
+});
 
+const createParticleProgram = (gl, proxy) => utils.createGenericProgram(gl, {
+  vert: shader.VERTEX_SHADER_SOURCE_PARTICLE(proxy.state),
+  frag: shader.FRAGMENT_SHADER_SOURCE_PARTICLE(proxy.state),
+  link(program) {
+    gl.transformFeedbackVaryings(program, ['vPosition', 'vVelocity', 'vDuration', 'vLapsed'], gl.SEPARATE_ATTRIBS);
+    utils.linkProgram(gl, program);
+  },
+  after(program) {
+    gl.uniformBlockBinding(program, gl.getUniformBlockIndex(program, 'Camera'), 0);
+    gl.uniformBlockBinding(program, gl.getUniformBlockIndex(program, 'LightColors'), 2);
+    this.uDelta = gl.getUniformLocation(program, 'uDeltaTime');
+    this.uRandom = gl.getUniformLocation(program, 'uRandom');
+  },
+});
 
-
-
-export default ({ options }) => {
-  const canvas = useRef();
+export default ({ options, proxy }) => {
   const app = useRef({}).current;
-  utils.useCanvas(app, canvas, options);
+  const canvas = useRef();
+  const mouse = utils.useMouseCamera(app, canvas);
+  utils.useFullscreenCanvas(app, canvas, proxy);
 
   useEffect(function Initialize() {
     const { gl } = app;
     gl.clearColor(0.3, 0.4, 0.6, 1.0);
     gl.enable(gl.CULL_FACE);
-    gl.enable(gl.BLEND);
+    gl.enable(gl.DEPTH_TEST);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+
+    // Create the meshes/systems
     app.boxMesh = utils.createGenericMesh(gl, utils.createFlatCubeMesh(1, true));
+    app.particleSystem = particle.createParticleSystem(gl, proxy.state.particle);
 
-    app.uCamera = shader.create_UNIFORM_BLOCK_CAMERA(app.gl);
-    app.uLightDirections = shader.create_UNIFORM_BLOCK_LIGHT_DIRECTIONS(app.gl, options.state);
-    app.uLightColors = shader.create_UNIFORM_BLOCK_LIGHT_COLORS(app.gl, options.state);
+    // Create the uniform buffer objects
+    app.uCamera = shader.UNIFORM_BLOCK_CAMERA.create(gl);
+    app.uLightDirection = shader.UNIFORM_BLOCK_LIGHT_DIRECTIONS.create(app.gl, proxy.state);
+    app.uLightColor = shader.UNIFORM_BLOCK_LIGHT_COLORS.create(app.gl, proxy.state);
 
-    /*
-    app.UBOCamera = utils.createUniformBufferObject(gl, $ => [
-      $.mat4('projection'),
-      $.mat4('view'),
-      $.vec3('position'),
-    ]);
-    app.UBOLights = utils.createUniformBufferObject(gl, $ => [
-      $.array('points', options.state.points.length, [
-        $.vec3('ambient'),
-        $.vec3('diffuse'),
-        $.vec3('specular'),
-        $.vec3('position'),
-      ]),
-      $.padUniformBufferOffsetAlignment(),
-      $.array('boxes', options.state.boxes.length, [
-        $.vec3('ambient'),
-        $.vec3('diffuse'),
-        $.vec3('specular'),
-        $.vec3('direction'),
-        $.mat4('transform'),
-      ]),
-    ]);
-    */
-    app.boxProgram = utils.createGenericProgram(app.gl, {
-      vert: shader.Vertex(options.state),
-      frag: shader.Fragment(options.state),
-      after: program => {
-        const BIND_CAMERA = 0;
-        const BIND_LIGHTS_VERT = 1;
-        const BIND_LIGHTS_FRAG = 2;
-        const INDX_CAMERA = app.gl.getUniformBlockIndex(program, 'Camera');
-        const INDX_LIGHTS_VERT = app.gl.getUniformBlockIndex(program, 'LightsVert');
-        const INDX_LIGHTS_FRAG = app.gl.getUniformBlockIndex(program, 'LightsFrag');
-        app.gl.uniformBlockBinding(program, INDX_CAMERA, BIND_CAMERA);
-        app.gl.uniformBlockBinding(program, INDX_LIGHTS_VERT, BIND_LIGHTS_VERT);
-        app.gl.uniformBlockBinding(program, INDX_LIGHTS_FRAG, BIND_LIGHTS_FRAG);
-        app.gl.bindBufferBase(app.gl.UNIFORM_BUFFER, BIND_CAMERA, app.UBOCamera.glBuffer);
-        app.gl.bindBufferRange(app.gl.UNIFORM_BUFFER, BIND_LIGHTS_VERT, app.UBOLights.glBuffer, 0, 64);
-        app.gl.bindBufferRange(app.gl.UNIFORM_BUFFER, BIND_LIGHTS_FRAG, app.UBOLights.glBuffer, 0, 384);
-      }
+    // The programs
+    app.objectProgram = createObjectProgram(app.gl, proxy);
+    app.particleProgram = createParticleProgram(app.gl, proxy);
+
+    // wat?
+    gl.bindBufferBase(gl.UNIFORM_BUFFER, 0, app.uCamera.__gpu);
+    gl.bindBufferBase(gl.UNIFORM_BUFFER, 1, app.uLightDirection.__gpu);
+    gl.bindBufferBase(gl.UNIFORM_BUFFER, 2, app.uLightColor.__gpu);
+  }, [app, canvas, proxy]);
+
+  useEffect(function UpdateLightBuffersAndObjectProgram() {
+    if (!app.initialized) return;
+    app.uLightDirection.dispose();
+    app.uLightColor.dispose();
+    app.objectProgram.dispose();
+    app.particleProgram.dispose();
+    // Create the Uniform Buffer Objects that holds the light data
+    app.uLightDirection = shader.UNIFORM_BLOCK_LIGHT_DIRECTIONS.create(app.gl, proxy.state);
+    app.uLightColor = shader.UNIFORM_BLOCK_LIGHT_COLORS.create(app.gl, proxy.state);
+    // Create the program that will render objects, using the light data
+    app.objectProgram = createObjectProgram(app.gl, proxy);
+    app.particleProgram = createParticleProgram(app.gl, proxy);
+    app.colorsNeedUpdate = true;
+  }, [app, proxy, options.points.length, options.boxes.length]);
+
+  useEffect(function UpdateParticles() {
+    if (!app.initialized) return;
+    app.particleProgram.dispose();
+    app.particleProgram = createParticleProgram(app.gl, proxy);
+  }, [app, proxy, options.particle, options.points.length, options.boxes.length]);
+
+  useEffect(function UpdateParticles() {
+    if (!app.initialized) return;
+    app.particleSystem.dispose();
+    app.particleSystem = particle.createParticleSystem(app.gl, proxy.state.particle);
+  }, [app, proxy, options.particle.count]);
+
+  useEffect(function UpdateLightPoints() {
+    options.points.forEach((point, index) => {
+      app.uLightDirection.points[index](point.position);
+      app.uLightColor.points[index].ambient(point.ambient);
+      app.uLightColor.points[index].diffuse(point.diffuse);
+      app.uLightColor.points[index].specular(point.specular);
+      app.uLightColor.points[index].highlight(point.highlight);
     });
-  }, [app, canvas, options]);
+    app.colorsNeedUpdate = true;
+  }, [app, proxy, options.points, options.points.length, options.boxes.length]);
 
-  useGUIChanges(app, canvas);
+  useEffect(function UpdateBoxes() {
+    const shear = new Matrix4();
+    options.boxes.forEach((box, index) => {
+      const buf = app.uLightColor.boxes[index];
+      buf.diffuse(box.diffuse);
+      buf.specular(box.specular);
 
-  useEffect(function RenderLoop() {
+      mat4.identity(buf.transform());
+      shear.makeShear(...box.shear);
+
+      // const LR = box.shear[0];
+      // const TB = box.shear[1];
+      // const N = box.scale[0];
+      // const F = box.scale[1];
+      // const frustum = mat4.frustum(mat4.create(), LR * -1, LR, TB * -1, TB, N, F);
+
+      mat4.translate(buf.transform(), buf.transform(), box.position);
+
+      mat4.multiply(buf.transform(), buf.transform(), shear.elements);
+
+      // mat4.rotateY(buf.transform(), buf.transform(), box.shear[2] * -1);
+      // mat4.rotateZ(buf.transform(), buf.transform(), box.shear[2] * -1);
+      // mat4.rotateZ(buf.transform(), buf.transform(), box.shear[2] * -1);
+
+      mat4.rotateY(buf.transform(), buf.transform(), box.rotation[1]);
+      mat4.rotateX(buf.transform(), buf.transform(), box.rotation[0]);
+      mat4.rotateZ(buf.transform(), buf.transform(), box.rotation[2]);
+
+      mat4.scale(buf.transform(), buf.transform(), box.scale);
+
+      // mat4.multiply(buf.transform(), buf.transform(), frustum);
+
+      vec3.transformMat4(buf.direction(), [0, 0, -1], buf.transform());
+      mat4.invert(buf.transform(), buf.transform());
+    });
+    app.colorsNeedUpdate = true;
+  }, [app, proxy, options.boxes, options.points.length, options.boxes.length]);
+
+  useEffect(() => {
+    app.initialized = true;
+  }, [app]);
+
+  utils.useDeltaAnimationFrame(60, dt => {
     const { gl } = app;
-    let request = requestAnimationFrame(function frame() {
-      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-      app.UBOCamera.upload(app.gl);
-      app.UBOLights.upload(app.gl);
-      app.boxProgram.use();
-      app.boxMesh.bind();
-      gl.frontFace(gl.CW);
-      gl.drawElements(gl.TRIANGLES, app.boxMesh.count, gl.UNSIGNED_SHORT, 0);
-      gl.frontFace(gl.CCW);
-      // Queue next frame
-      request = requestAnimationFrame(frame);
-    });
-    return () => window.cancelAnimationFrame(request);
-  }, [app, options]);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+    // update the orbital mouse stuffses
+    mouse(dt);
+    gl.bindBuffer(gl.UNIFORM_BUFFER, app.uCamera.__gpu);
+    gl.bufferSubData(gl.UNIFORM_BUFFER, 0, app.uCamera.__cpu);
+    if (app.colorsNeedUpdate) {
+      gl.bindBuffer(gl.UNIFORM_BUFFER, app.uLightDirection.__gpu);
+      gl.bufferSubData(gl.UNIFORM_BUFFER, 0, app.uLightDirection.__cpu);
+      gl.bindBuffer(gl.UNIFORM_BUFFER, app.uLightColor.__gpu);
+      gl.bufferSubData(gl.UNIFORM_BUFFER, 0, app.uLightColor.__cpu);
+      app.colorsNeedUpdate = false;
+    }
+    gl.bindBuffer(gl.UNIFORM_BUFFER, null);
+
+    // render room
+    app.objectProgram.use();
+    app.boxMesh.bind();
+    gl.frontFace(gl.CW);
+    gl.drawElements(gl.TRIANGLES, app.boxMesh.count, gl.UNSIGNED_SHORT, 0);
+    gl.frontFace(gl.CCW);
+
+    // render particles
+    app.particleProgram.use();
+    gl.uniform1f(app.particleProgram.uDelta, dt / 60);
+    gl.uniform1f(app.particleProgram.uRandom, Math.random() * 2 - 1);
+    gl.enable(gl.BLEND);
+    gl.disable(gl.DEPTH_TEST);
+    const index = app.particleSystem.next();
+    gl.bindVertexArray(app.particleSystem.array[index]);
+    gl.bindTransformFeedback(gl.TRANSFORM_FEEDBACK, app.particleSystem.feedback[index]);
+    gl.beginTransformFeedback(gl.POINTS);
+    gl.drawArrays(gl.POINTS, 0, proxy.state.particle.count);
+    gl.endTransformFeedback();
+    gl.enable(gl.DEPTH_TEST);
+    gl.disable(gl.BLEND);
+  });
 
   return <canvas ref={canvas} />;
 };
