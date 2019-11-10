@@ -1,33 +1,20 @@
-import React, { useRef, useEffect } from 'react';
+import React, { Fragment, useRef, useEffect, useState } from 'react';
 import { mat4, vec3 } from 'gl-matrix';
 import { Matrix4 } from 'three';
 import suzanne from './deps/models/suzanneHighpoly.json';
+import Source from './deps/Source';
 import * as utils from './deps/utils';
 import * as shaders from './Shaders';
 import * as particles from './Particles';
-
-/*
-
-const createParticleProgram = (gl, proxy) => utils.createGenericProgram(gl, {
-  vert: shaders.VERTEX_SHADER_SOURCE_PARTICLE(proxy.state),
-  frag: shaders.FRAGMENT_SHADER_SOURCE_PARTICLE(proxy.state),
-  link(program) {
-    gl.transformFeedbackVaryings(program, ['vPosition', 'vVelocity', 'vDuration', 'vLapsed'], gl.SEPARATE_ATTRIBS);
-    utils.linkProgram(gl, program);
-  },
-  after(program) {
-    gl.uniformBlockBinding(program, gl.getUniformBlockIndex(program, 'Camera'), 0);
-    gl.uniformBlockBinding(program, gl.getUniformBlockIndex(program, 'LightColors'), 2);
-    this.uDelta = gl.getUniformLocation(program, 'uDeltaTime');
-    this.uRandom = gl.getUniformLocation(program, 'uRandom');
-  },
-});
-*/
 
 export default ({ options, proxy }) => {
   const app = useRef({}).current;
   const canvas = useRef();
   const mouse = utils.useMouseCamera(app, canvas);
+  const [ meshVertSource, setMeshVertSource ] = useState('');
+  const [ meshFragSource, setMeshFragSource ] = useState('');
+  const [ partVertSource, setPartVertSource ] = useState('');
+  const [ partFragSource, setPartFragSource ] = useState('');
   utils.useFullscreenCanvas(app, canvas, proxy);
 
   useEffect(function Initialize() {
@@ -36,19 +23,217 @@ export default ({ options, proxy }) => {
     gl.enable(gl.CULL_FACE);
     gl.enable(gl.DEPTH_TEST);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
-
-    // Create the meshes/systems
-    app.objectBox = utils.createGenericMesh(gl, utils.createFlatCubeMesh(1, true));
-    app.objectSuzanne = utils.createGenericMesh(gl, suzanne);
-    app.objectParticle = particles.createParticleSystem(gl, proxy.state.particle);
-
-    // Create the uniform buffer objects
+    // Meshes etc,
+    app.boxMesh = utils.createGenericMesh(gl, utils.createFlatCubeMesh(1, true));
+    app.suzanneMesh = utils.createGenericMesh(gl, suzanne);
+    app.particles = null;
+    // Uniform Buffer Objects
     app.uCamera = shaders.CAMERA_UNIFORM_BLOCK.create(gl);
-    app.uMaterial = shaders.MATERIAL_UNIFORM_BLOCK.create(gl, proxy.state);
-    app.uLightDirection = shaders.LIGHT_DIRECTIONS_UNIFORM.create(app.gl, proxy.state);
-    app.uLightColor = shaders.LIGHT_COLORS_UNIFORM_BLOCK.create(app.gl, proxy.state);
+    app.uDirection = null;
+    app.uModel = null;
+    app.uMaterial = null;
+    app.uLights = null;
+    app.gl.bindBufferBase(app.gl.UNIFORM_BUFFER, 0, app.uCamera.__gpu);
+    // Programs
+    app.meshProgram = utils.createGenericProgram(app.gl, {
+      vert: () => {
+        const source = shaders.OBJECT_VERTEX_SHADER(proxy.state);
+        setMeshVertSource(source);
+        return source;
+      },
+      frag: () => {
+        const source = shaders.OBJECT_FRAGMENT_SHADER(proxy.state);
+        setMeshFragSource(source);
+        return source;
+      },
+      after(program) {
+        app.gl.uniformBlockBinding(program, app.gl.getUniformBlockIndex(program, 'Camera'), 0);
+        app.gl.uniformBlockBinding(program, app.gl.getUniformBlockIndex(program, 'Model'), 1);
+        app.gl.uniformBlockBinding(program, app.gl.getUniformBlockIndex(program, 'Material'), 2);
+        if (proxy.state.lights.length)
+          app.gl.uniformBlockBinding(program, app.gl.getUniformBlockIndex(program, 'Lights'), 3);
+        this.uDirections = app.gl.getUniformLocation(program, 'uDirections');
+        this.uModID = app.gl.getUniformLocation(program, 'uModID');
+        this.uMatID = app.gl.getUniformLocation(program, 'uMatID');
+      },
+    });
+    app.particleProgram = utils.createGenericProgram(gl, {
+      vert: () => {
+        const source = shaders.PARTICLE_VERTEX_SHADER(proxy.state);
+        setPartVertSource(source);
+        return source;
+      },
+      frag: () => {
+        const source = shaders.PARTICLE_FRAGMENT_SHADER(proxy.state);
+        setPartFragSource(source);
+        return source;
+      },
+      link(program) {
+        gl.transformFeedbackVaryings(program, ['vPosition', 'vVelocity', 'vDuration', 'vLapsed'], gl.SEPARATE_ATTRIBS);
+        utils.linkProgram(gl, program);
+      },
+      after(program) {
+        gl.uniformBlockBinding(program, gl.getUniformBlockIndex(program, 'Camera'), 0);
+        if (proxy.state.lights.length)
+          app.gl.uniformBlockBinding(program, app.gl.getUniformBlockIndex(program, 'Lights'), 3);
+        this.uDirections = app.gl.getUniformLocation(program, 'uDirections');
+        this.uDelta = gl.getUniformLocation(program, 'uDeltaTime');
+        this.uRandom = gl.getUniformLocation(program, 'uRandom');
+        this.uDiffuse = gl.getUniformLocation(program, 'uDiffuse');
+      },
+    });
+  }, [app, canvas, proxy]);
 
-    app.programObject = utils.createGenericProgram(gl, {
+  useEffect(() => {
+    if (app.uModel) {
+      app.uModel.dispose(app.gl);
+      app.uMaterial.dispose(app.gl);
+      app.meshProgram.dispose(app.gl);
+    }
+    app.uModel = shaders.MODEL_UNIFORM_BLOCK.create(app.gl, proxy.state);
+    app.uMaterial = shaders.MATERIAL_UNIFORM_BLOCK.create(app.gl, proxy.state);
+    app.gl.bindBufferBase(app.gl.UNIFORM_BUFFER, 1, app.uModel.__gpu);
+    app.gl.bindBufferBase(app.gl.UNIFORM_BUFFER, 2, app.uMaterial.__gpu);
+  }, [app, proxy, options.objects.length]);
+
+  utils.useUpdatePrograms(options.lights, initial => {
+    if (!initial) {
+      app.uLights.dispose(app.gl);
+      app.meshProgram.dispose();
+      app.particleProgram.dispose();
+    }
+    app.particles = particles.createParticleSystem(app.gl, options);
+    app.uDirection = shaders.LIGHT_DIRECTIONS_UNIFORM.create(app.gl, options);
+    app.uLights = shaders.LIGHT_COLORS_UNIFORM_BLOCK.create(app.gl, options);
+    app.gl.bindBufferBase(app.gl.UNIFORM_BUFFER, 3, app.uLights.__gpu);
+  });
+
+  useEffect(() => {
+    options.objects.forEach((object, i) => {
+      mat4.identity(app.uModel.transform[i]())
+      mat4.translate(app.uModel.transform[i](), app.uModel.transform[i](), object.position);
+      mat4.rotateY(app.uModel.transform[i](), app.uModel.transform[i](), object.rotation[1]);
+      mat4.rotateX(app.uModel.transform[i](), app.uModel.transform[i](), object.rotation[0]);
+      mat4.rotateZ(app.uModel.transform[i](), app.uModel.transform[i](), object.rotation[2]);
+      mat4.scale(app.uModel.transform[i](), app.uModel.transform[i](), object.scale);
+      app.uMaterial.diffuse[i](object.diffuse);
+      app.uMaterial.specular[i](object.specular);
+      app.uMaterial.highlight[i](object.highlight);
+    });
+    app.gl.bindBuffer(app.gl.UNIFORM_BUFFER, app.uModel.__gpu);
+    app.gl.bufferSubData(app.gl.UNIFORM_BUFFER, 0, app.uModel.__cpu);
+    app.gl.bindBuffer(app.gl.UNIFORM_BUFFER, app.uMaterial.__gpu);
+    app.gl.bufferSubData(app.gl.UNIFORM_BUFFER, 0, app.uMaterial.__cpu);
+  }, [app, proxy, options.objects]);
+
+  useEffect(() => {
+    const shear = new Matrix4();
+    shaders.loopLights(options.lights, ({ type, value }, i, j) => {
+      app.uLights[type][i].diffuse(value.diffuse);
+      app.uLights[type][i].specular(value.specular);
+      if (type === 'box') {
+        const transform = app.uLights.box[i].transform();
+        mat4.identity(transform);
+        mat4.translate(transform, transform, value.position);
+        mat4.rotateY(transform, transform, value.rotation[1]);
+        mat4.rotateX(transform, transform, value.rotation[0]);
+        mat4.rotateZ(transform, transform, value.rotation[2]);
+        shear.makeShear(...value.shear);
+        mat4.multiply(transform, transform, shear.elements);
+        mat4.scale(transform, transform, value.scale);
+        // app.uLights.box[i].direction([0, 0, -1]);
+        const direction = app.uLights.box[i].direction();
+        vec3.transformMat4(direction, [0, 0, -1], transform);
+        vec3.normalize(direction, direction);
+        mat4.invert(transform, transform);
+      } else if (type === 'direction') {
+        app.uLights.direction[i].direction(value.direction);
+      } else if (type === 'point') {
+        app.uLights.point[i].attenuation(value.attenuation);
+        utils.copy(app.uDirection, value.position, j * 3);
+      } else if (type === 'spot') {
+        utils.copy(app.uDirection, value.position, j * 3);
+        app.uLights.spot[i].direction(value.direction);
+      }
+    });
+    app.gl.bindBuffer(app.gl.UNIFORM_BUFFER, app.uLights.__gpu);
+    app.gl.bufferSubData(app.gl.UNIFORM_BUFFER, 0, app.uLights.__cpu);
+    app.meshProgram.use();
+    app.gl.uniform3fv(app.meshProgram.uDirections, app.uDirection);
+    app.particleProgram.use();
+    app.gl.uniform3fv(app.particleProgram.uDirections, app.uDirection);
+  }, [app, proxy, options.lights]);
+
+  useEffect(() => {
+    if (app.particles)
+      app.particles.dispose();
+    app.particles = particles.createParticleSystem(app.gl, proxy.state);
+  }, [app, proxy, options.particle.count]);
+
+  useEffect(() => {
+    if (app.particleProgram)
+      app.particleProgram.dispose();
+    app.particleProgram.use();
+  }, [app, proxy, options.particle]);
+
+  utils.useDeltaAnimationFrame(60, dt => {
+    const { gl } = app;
+    mouse(dt);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    gl.bindBuffer(gl.UNIFORM_BUFFER, app.uCamera.__gpu);
+    gl.bufferSubData(gl.UNIFORM_BUFFER, 0, app.uCamera.__cpu);
+
+    app.meshProgram.use();
+    for (let i = 0; i < app.uModel.transform.length && i < proxy.state.objects.length; i++) {
+      gl.uniform1i(app.meshProgram.uModID, i);
+      gl.uniform1i(app.meshProgram.uMatID, i);
+      switch (proxy.state.objects[i].mesh) {
+        case 'suzanne':
+          app.suzanneMesh.bind();
+          gl.drawElements(gl.TRIANGLES, app.suzanneMesh.count, gl.UNSIGNED_SHORT, 0);
+          break;
+        default:
+          app.boxMesh.bind();
+          gl.frontFace(gl.CW);
+          gl.drawElements(gl.TRIANGLES, app.boxMesh.count, gl.UNSIGNED_SHORT, 0);
+          gl.frontFace(gl.CCW);
+          break;
+      }
+    }
+
+    if (proxy.state.particle.enabled) {
+      app.particleProgram.use();
+      gl.uniform1f(app.particleProgram.uDelta, dt / 60);
+      gl.uniform1f(app.particleProgram.uRandom, Math.random() * 2 - 1);
+      gl.uniform3fv(app.particleProgram.uDiffuse, proxy.state.particle.diffuse);
+      const index = app.particles.next();
+      gl.bindVertexArray(app.particles.array[index]);
+      gl.bindTransformFeedback(gl.TRANSFORM_FEEDBACK, app.particles.feedback[index]);
+      gl.beginTransformFeedback(gl.POINTS);
+      if (proxy.state.particle.blend) gl.enable(gl.BLEND);
+      if (!proxy.state.particle.depth) gl.disable(gl.DEPTH_TEST);
+      gl.drawArrays(gl.POINTS, 0, app.particles.count);
+      if (proxy.state.particle.blend) gl.disable(gl.BLEND);
+      if (!proxy.state.particle.depth) gl.enable(gl.DEPTH_TEST);
+      gl.endTransformFeedback();
+    }
+  });
+
+  return (
+    <Fragment>
+      <canvas ref={canvas} />;
+      <Source sources={[
+        { name: 'MeshVert', source: meshVertSource },
+        { name: 'MeshFrag', source: meshFragSource },
+        { name: 'ParticleVert', source: partVertSource },
+        { name: 'ParticleFrag', source: partFragSource },
+      ]} />
+    </Fragment>
+  );
+};
+
+    /*
+    app.meshProgram = utils.createGenericProgram(gl, {
       vert: shaders.OBJECT_VERTEX_SHADER(proxy.state),
       frag: shaders.OBJECT_FRAGMENT_SHADER(proxy.state),
       after(program) {
@@ -59,59 +244,16 @@ export default ({ options, proxy }) => {
         this.uInstance = gl.getUniformLocation(program, 'uInstance');
       },
     });
-
-    app.program = utils.createGenericProgram(app.gl, {
-      vert: `#version 300 es
-        precision mediump float;
-        ${shaders.CAMERA_UNIFORM_BLOCK()}
-        uniform vec3 uColors[3];
-        layout(location=0) in vec4 aPosition;
-        layout(location=1) in vec3 aNormal;
-        out vec3 vColor;
-        void main() {
-          gl_Position = uCamera.projection * uCamera.view * aPosition;
-          vColor = vec3(1.0, 0.0, 0.0);
-          vColor = uColors[1];
-        }
-      `,
-      frag: `#version 300 es
-        precision mediump float;
-        in vec3 vColor;
-        out vec4 fragColor;
-        void main() {
-          fragColor = vec4(vColor, 1.0);
-        }
-      `,
-      after: program => {
-        gl.uniformBlockBinding(program, gl.getUniformBlockIndex(program, 'Camera'), 0);
-      },
-    });
-
-    // The programs
-    // app.objectProgram = createObjectProgram(app.gl, proxy);
-    // app.particleProgram = createParticleProgram(app.gl, proxy);
-
-    gl.bindBufferBase(gl.UNIFORM_BUFFER, 0, app.uCamera.__gpu);
-    gl.bindBufferBase(gl.UNIFORM_BUFFER, 1, app.uMaterial.__gpu);
-    gl.bindBufferBase(gl.UNIFORM_BUFFER, 2, app.uLightColor.__gpu);
-  }, [app, canvas, proxy]);
-
-  utils.useChange(true, function UpdateLightBuffersAndObjectProgram() {
-    app.uLightColor.dispose();
-    app.objectProgram.dispose();
-    /*
     app.particleProgram.dispose();
     // Create the Uniform Buffer Objects that holds the light data
-    app.uLightDirection = shaders.UNIFORM_BLOCK_LIGHT_DIRECTIONS.create(app.gl, proxy.state);
+    app.uDirection = shaders.UNIFORM_BLOCK_LIGHT_DIRECTIONS.create(app.gl, proxy.state);
     app.uLightColor = shaders.UNIFORM_BLOCK_LIGHT_COLORS.create(app.gl, proxy.state);
     // Create the program that will render objects, using the light data
-    app.objectProgram = createObjectProgram(app.gl, proxy);
+    app.meshProgram = createObjectProgram(app.gl, proxy);
     app.particleProgram = createParticleProgram(app.gl, proxy);
 
     app.colorsNeedUpdate = true;
     */
-
-  }, [app, proxy, options.lights.length]);
 
   /*
   useEffect(function UpdateParticles() {
@@ -126,32 +268,6 @@ export default ({ options, proxy }) => {
     app.objectParticle = particles.createParticleSystem(app.gl, proxy.state.particle);
   }, [app, proxy, options.particle.count]);
   */
-
-  useEffect(function UpdateMaterials() {
-    options.objects.forEach((object, i) => {
-      app.uMaterial.diffuse[i](object.diffuse);
-      app.uMaterial.specular[i](object.specular);
-      app.uMaterial.highlight[i](object.highlight);
-    });
-  }, [app, proxy, options.objects]);
-
-  useEffect(function UpdateLights() {
-    shaders.loopLights(options.lights, ({ type, value }, i, j) => {
-      app.uLightColor[type][i].diffuse(value.diffuse);
-      app.uLightColor[type][i].specular(value.specular);
-      if (type === 'box') {
-        // direction
-        // transform
-      } else if (type === 'direction') {
-        app.uLightColor.direction[i].direction(value.direction);
-      } else if (type === 'point') {
-        utils.copy(app.uLightDirection, value.position, j * 3);
-      } else if (type === 'spot') {
-        utils.copy(app.uLightDirection, value.position, j * 3);
-        app.uLightColor.spot[i].direction(value.direction);
-      }
-    });
-  }, [app, proxy, options.lights]);
 
   /*
   useEffect(function UpdateBoxes() {
@@ -179,57 +295,6 @@ export default ({ options, proxy }) => {
   }, [app]);
   */
 
-  utils.useDeltaAnimationFrame(60, dt => {
-    const { gl } = app;
-    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+/*
 
-    mouse(dt);
-    gl.bindBuffer(gl.UNIFORM_BUFFER, app.uCamera.__gpu);
-    gl.bufferSubData(gl.UNIFORM_BUFFER, 0, app.uCamera.__cpu);
-    gl.bindBuffer(gl.UNIFORM_BUFFER, app.uMaterial.__gpu);
-    gl.bufferSubData(gl.UNIFORM_BUFFER, 0, app.uMaterial.__cpu);
-    gl.bindBuffer(gl.UNIFORM_BUFFER, app.uLightColor.__gpu);
-    gl.bufferSubData(gl.UNIFORM_BUFFER, 0, app.uLightColor.__cpu);
-
-    app.programObject.use();
-    gl.uniform3fv(app.programObject.uDirections, app.uLightDirection);
-    gl.uniform1i(app.programObject.uInstance, 0);
-    app.objectBox.bind();
-    gl.frontFace(gl.CW);
-    gl.drawElements(gl.TRIANGLES, app.objectBox.count, gl.UNSIGNED_SHORT, 0);
-    gl.frontFace(gl.CCW);
-
-    // mouse(dt);
-    // gl.bindBuffer(gl.UNIFORM_BUFFER, app.uCamera.__gpu);
-    // gl.bufferSubData(gl.UNIFORM_BUFFER, 0, app.uCamera.__cpu);
-
-    // gl.bindBuffer(gl.UNIFORM_BUFFER, app.uMaterial.__gpu);
-    // // gl.buff(gl.UNIFORM_BUFFER, app.uLightDirection.__gpu);
-
-    // gl.bindBuffer(gl.UNIFORM_BUFFER, null);
-
-    // render room
-    // app.objectProgram.use();
-    // app.objectBox.bind();
-    // gl.frontFace(gl.CW);
-    // gl.drawElements(gl.TRIANGLES, app.objectBox.count, gl.UNSIGNED_SHORT, 0);
-    // gl.frontFace(gl.CCW);
-
-    // render particles
-    // app.particleProgram.use();
-    // gl.uniform1f(app.payyrticleProgram.uDelta, dt / 60);
-    // gl.uniform1f(app.particleProgram.uRandom, Math.random() * 2 - 1);
-    // gl.enable(gl.BLEND);
-    // gl.disable(gl.DEPTH_TEST);
-    // const index = app.objectParticle.next();
-    // gl.bindVertexArray(app.objectParticle.array[index]);
-    // gl.bindTransformFeedback(gl.TRANSFORM_FEEDBACK, app.objectParticle.feedback[index]);
-    // gl.beginTransformFeedback(gl.POINTS);
-    // gl.drawArrays(gl.POINTS, 0, proxy.state.particle.count);
-    // gl.endTransformFeedback();
-    // gl.enable(gl.DEPTH_TEST);
-    // gl.disable(gl.BLEND);
-  });
-
-  return <canvas ref={canvas} />;
-};
+*/

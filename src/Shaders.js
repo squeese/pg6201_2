@@ -34,12 +34,23 @@ CAMERA_UNIFORM_BLOCK.create = gl => UBO.create(gl,
   UBO.vec4('position')
 );
 
+export const MODEL_UNIFORM_BLOCK = ({ objects }) => `
+uniform int uModID;
+uniform Model {
+  mat4 transform[${Math.max(1, objects.length)}];
+} uModel;
+`.trim();
+
+MODEL_UNIFORM_BLOCK.create = (gl, { objects }) => UBO.create(gl,
+  UBO.array('transform', objects.length, UBO.mat4),
+);
+
 export const MATERIAL_UNIFORM_BLOCK = ({ objects }) => `
-uniform int uInstance;
+uniform int uMatID;
 uniform Material {
-  vec3 diffuse[${objects.length}];
-  vec3 specular[${objects.length}];
-  float highlight[${objects.length}];
+  vec3 diffuse[${Math.max(1, objects.length)}];
+  vec3 specular[${Math.max(1, objects.length)}];
+  float highlight[${Math.max(1, objects.length)}];
 } uMaterial;
 `.trim();
 
@@ -47,6 +58,7 @@ MATERIAL_UNIFORM_BLOCK.create = (gl, { objects }) => UBO.create(gl,
   UBO.array('diffuse', objects.length, UBO.vec3),
   UBO.array('specular', objects.length, UBO.vec3),
   UBO.array('highlight', objects.length, UBO.float),
+  UBO.array('transform', objects.length, UBO.mat4),
 );
 
 export const LIGHT_DIRECTIONS_UNIFORM = ({ lights }) => {
@@ -84,6 +96,7 @@ struct Direction {
 struct Point {
   vec3 diffuse;
   vec3 specular;
+  float attenuation;
 };
 struct Spot {
   vec3 diffuse;
@@ -113,6 +126,7 @@ LIGHT_COLORS_UNIFORM_BLOCK.create = (gl, { lights }) => UBO.create(gl,
   UBO.array('point', lights.filter(POINT).length, [
     UBO.vec3('diffuse'),
     UBO.vec3('specular'),
+    UBO.float('attenuation'),
   ]),
   UBO.array('spot', lights.filter(SPOT).length, [
     UBO.vec3('diffuse'),
@@ -121,9 +135,54 @@ LIGHT_COLORS_UNIFORM_BLOCK.create = (gl, { lights }) => UBO.create(gl,
   ]),
 );
 
+const MESH_BOX_LIGHT = i => `
+  pos4 = uLights.box[${i}].transform * vec4(vPosition, 1.0);
+  pos3 = pos4.xyz / pos4.w;
+  if (pos3.x > -1.0 && pos3.x < 1.0 && pos3.y > -1.0 && pos3.y < 1.0) {// && pos3.z > 0.0 && pos3.z < 1.0) {
+    L = uLights.box[${i}].direction;
+    color += diffuseColor(uLights.box[${i}].diffuse, N, L);
+  }
+  `;
+
+const PARTICLE_BOX_LIGHT = i => `
+  pos4 = uLights.box[${i}].transform * vec4(vPosition, 1.0);
+  pos3 = pos4.xyz / pos4.w;
+  if (pos3.x > -1.0 && pos3.x < 1.0 && pos3.y > -1.0 && pos3.y < 1.0 && pos3.z > 0.0 && pos3.z < 1.0) {
+    color += uDiffuse * uLights.box[${i}].diffuse;
+  }
+`.trim();
+
+const MESH_DIRECTION_LIGHT = i => `
+  L = uLights.direction[${i}].direction;
+  D = 1.0 / length(L);
+  color += diffuseColor(uLights.direction[${i}].diffuse, N, L) * D;
+  color += specularColor(uLights.direction[${i}].specular, N, L, V) * D;
+`.trim();
+
+const MESH_POINT_LIGHT = (i, j) => `
+  L = normalize(vDirections[${j}]);
+  D = 1.0 / pow(length(vDirections[${j}]), uLights.point[${i}].attenuation);
+  color += diffuseColor(uLights.point[${i}].diffuse, N, L) * D;
+  color += specularColor(uLights.point[${i}].specular, N, L, V) * D;
+`.trim();
+
+const PARTICLE_POINT_LIGHT = (i, j) => `
+  L = uDirections[${j}] - aPosition;
+  D = 1.0 / pow(length(L), uLights.point[${i}].attenuation);
+  color += uDiffuse * uLights.point[${i}].diffuse * D;
+`.trim();
+
+const MESH_SPOT_LIGHT = (i, j) => `
+  L = normalize(vDirections[${j}]);
+  D = 1.0 / pow(length(L), uLights.spot[${i}].attenuation);
+  color += diffuseColor(uLights.spot[${i}].diffuse, N, L) * D;
+  color += specularColor(uLights.spot[${i}].specular, N, L, V) * D;
+`.trim();
+
 export const OBJECT_VERTEX_SHADER = options => `#version 300 es
 precision mediump float;
 ${CAMERA_UNIFORM_BLOCK()}
+${MODEL_UNIFORM_BLOCK(options)}
 ${LIGHT_DIRECTIONS_UNIFORM(options)}
 layout(location=0) in vec4 aPosition;
 layout(location=1) in vec3 aNormal;
@@ -134,12 +193,12 @@ ${LIGHT_DIRECTIONS_VARYING('out', options)}
 void main() {
   vNormal = aNormal;
   vCamera = uCamera.position - aPosition.xyz;
-  vPosition = aPosition.xyz;
+  vec4 position = uModel.transform[uModID] * aPosition;
+  vPosition = position.xyz;
   ${loop(options.lights.filter(POSITIONAL), i =>`
-  vDirections[${i}] = uDirections[${i}] - aPosition.xyz;`)}
-  gl_Position = uCamera.projection * uCamera.view * aPosition;
-}
-`;
+  vDirections[${i}] = uDirections[${i}] - position.xyz;`)}
+  gl_Position = uCamera.projection * uCamera.view * position;
+}`.trim();
 
 export const OBJECT_FRAGMENT_SHADER = options => `#version 300 es
 precision mediump float;
@@ -151,104 +210,120 @@ in vec3 vCamera;
 in vec3 vPosition;
 out vec4 fragColor;
 vec3 diffuseColor(vec3 color, vec3 N, vec3 L) {
-  return uMaterial.diffuse[uInstance] * color * max(dot(N, L), 0.0);
+  return uMaterial.diffuse[uMatID] * color * max(dot(N, L), 0.0);
 }
 vec3 specularColor(vec3 color, vec3 N, vec3 L, vec3 V) {
   vec3 H = normalize(L + V);
-  return uMaterial.specular[uInstance] * color * pow(clamp(dot(N, H), 0.0, 1.0), uMaterial.highlight[uInstance]);
+  return uMaterial.specular[uMatID] * color * pow(clamp(dot(N, H), 0.0, 1.0), uMaterial.highlight[uMatID]);
 }
 void main() {
   vec3 color = vec3(0.0);
   vec3 N = normalize(vNormal);
   vec3 V = normalize(vCamera);
-  vec3 L;
+  vec3 L, pos3;
+  vec4 pos4;
   float D;
-  ${loopLights(options.lights, (light, i, j) => `
-  L = ${POSITIONAL(light) ? `normalize(vDirections[${j}]);` : `uLights.${light.type}[${i}].direction;`}
-  D = 1.0 / length(L);
-  color += diffuseColor(uLights.${light.type}[${i}].diffuse, N, L) * D;
-  color += specularColor(uLights.${light.type}[${i}].specular, N, L, V) * D;
-  `)}
+  ${loopLights(options.lights, (light, i, j) => {
+    if (BOX(light)) return MESH_BOX_LIGHT(i);
+    if (DIRECTION(light)) return MESH_DIRECTION_LIGHT(i);
+    if (POINT(light)) return MESH_POINT_LIGHT(i, j);
+    if (SPOT(light)) return MESH_SPOT_LIGHT(i, j);
+  })}
   fragColor = vec4(color, 1.0);
+}`;
+
+export const PARTICLE_VERTEX_SHADER = ({ particle, ...options }) => `#version 300 es
+precision mediump float;
+${CAMERA_UNIFORM_BLOCK()}
+${LIGHT_COLORS_UNIFORM_BLOCK(options)}
+${LIGHT_DIRECTIONS_UNIFORM(options)}
+uniform vec3 uDiffuse;
+uniform float uDeltaTime;
+uniform float uRandom;
+layout(location=0) in vec3 aPosition;
+layout(location=1) in vec3 aVelocity;
+layout(location=2) in float aDuration;
+layout(location=3) in float aLapsed;
+out vec3 vPosition;
+out vec3 vVelocity;
+out float vDuration;
+out float vLapsed;
+out vec4 vColor;
+vec3 randv(vec3 v, float m) {
+  float s = sin(dot(v, vec3(uRandom * 12.34, uRandom * 32.123, uRandom * 502.2))) * m;
+  return vec3(fract(s * v.x) * 2.0 - 1.0, fract(s * v.y) * 2.0 - 1.0, fract(s * v.z) * 2.0 - 1.0);
 }
-`;
-
-export const VERTEX_SHADER_SOURCE_PARTICLE = ({ particle, ...options }) => `#version 300 es
-  ${CAMERA_UNIFORM_BLOCK()}
-  ${LIGHT_COLORS_UNIFORM_BLOCK(options)}
-  uniform float uDeltaTime;
-  uniform float uRandom;
-  layout(location=0) in vec3 aPosition;
-  layout(location=1) in vec3 aVelocity;
-  layout(location=2) in float aDuration;
-  layout(location=3) in float aLapsed;
-  out vec3 vPosition;
-  out vec3 vVelocity;
-  out float vDuration;
-  out float vLapsed;
-  out vec4 vColor;
-  vec3 randv(vec3 v, float m) {
-    float s = sin(dot(v, vec3(uRandom * 12.34, uRandom * 32.123, uRandom * 502.2))) * m;
-    return vec3(fract(s * v.x) * 2.0 - 1.0, fract(s * v.y) * 2.0 - 1.0, fract(s * v.z) * 2.0 - 1.0);
+float randf(float v) {
+  return fract(v * uRandom * 992.34502);
+}
+void main() {
+  if (aLapsed > aDuration) {
+    vPosition = randv(aPosition, 12.34) * ${particle.roomSize.floatString()};
+    vVelocity = normalize(randv(aVelocity, 43.21)) * ${particle.speed.floatString()};
+    vDuration = ${particle.minDuration.floatString()} + (${particle.maxDuration.floatString()} - ${particle.minDuration.floatString()}) * randf(aDuration);
+    vLapsed = 0.0;
+  } else {
+    vec3 delta = aPosition * -1.0;
+    float distance = max(0.01, dot(delta, delta));
+    vec3 acceleration = 0.005 * normalize(delta);
+    vPosition = aPosition + aVelocity * uDeltaTime;
+    vVelocity = aVelocity + acceleration * uDeltaTime;
+    vDuration = aDuration;
+    vLapsed = aLapsed + uDeltaTime;
   }
-  float randf(float v) {
-    return fract(v * uRandom * 992.34502);
-  }
-  void main() {
-    if (aLapsed > aDuration) {
-      vPosition = randv(aPosition, 12.34) * ${particle.roomSize.floatString()};
-      vVelocity = normalize(randv(aVelocity, 43.21)) * ${particle.speed.floatString()};
-      vDuration = ${particle.minDuration.floatString()} + (${particle.maxDuration.floatString()} - ${particle.minDuration.floatString()}) * randf(aDuration);
-      vLapsed = 0.0;
-    } else {
-      vec3 delta = aPosition * -1.0;
-      float distance = max(0.01, dot(delta, delta));
-      vec3 acceleration = 0.005 * normalize(delta);
-      vPosition = aPosition + aVelocity * uDeltaTime;
-      vVelocity = aVelocity + acceleration * uDeltaTime;
-      vDuration = aDuration;
-      vLapsed = aLapsed + uDeltaTime;
-    }
-    gl_PointSize = ${particle.size.floatString()};
-    gl_Position = uCamera.projection * uCamera.view * vec4(vPosition, 1.0);
+  gl_PointSize = ${particle.size.floatString()};
+  gl_Position = uCamera.projection * uCamera.view * vec4(vPosition, 1.0);
+  vec3 color = vec3(0.0);
+  vec3 L, pos3;
+  vec4 pos4;
+  float D;
+  ${loopLights(options.lights, (light, i, j) => {
+    if (BOX(light)) return PARTICLE_BOX_LIGHT(i);
+    // if (DIRECTION(light)) return MESH_DIRECTION_LIGHT(i);
+    if (POINT(light)) return PARTICLE_POINT_LIGHT(i, j);
+    // if (SPOT(light)) return PARTICLE_SPOT_LIGHT(i, j);
+    return '';
+  })}
+  vColor = vec4(color, ${particle.insideAlpha.floatString()});
+}`;
 
-    float alpha = ${particle.outsideAlpha.floatString()};
-    vec3 color = vec3(0.0);
-    vec4 P0;
-    vec3 P1;
-    vec2 P2;
-    float x;
-    float y;
-    ${loop(options.boxes, i => `
-      P0 = uLights.boxes[${i}].transform * vec4(vPosition, 1.0);
-      P1 = P0.xyz / P0.w;
-      P2 = P1.xy * (0.4 / P1.z);
-      /*
-      x = max(1.0 + (max(abs(P1.x), 1.0) - 1.0) * -1.0, 0.0);
-      y = max(1.0 + (max(abs(P1.y), 1.0) - 1.0) * -1.0, 0.0);
-      alpha = x * y;
-      */
-      color += uLights.boxes[${i}].diffuse;
-      // if (P1.x > -0.99 && P1.x < 0.99 && P1.y > -0.99 && P1.y < 0.99 && P1.z > 0.0 && P1.z < 0.99) {
-        // alpha = ${particle.insideAlpha.floatString()};
-      // }
-      if (P2.x > -0.99 && P2.x < 0.99 && P2.y > -0.99 && P2.y < 0.99) {
-        alpha = ${particle.insideAlpha.floatString()};
-      }
-    `)}
-    vColor = vec4(color, alpha * min(aLapsed, 1.0) * min(aDuration - aLapsed, 1.0));
-  }
-`;
+export const PARTICLE_FRAGMENT_SHADER = () => `#version 300 es
+precision mediump float;
+in vec4 vColor;
+out vec4 fragColor;
+void main() {
+  fragColor = vColor;
+}`;
 
-export const FRAGMENT_SHADER_SOURCE_PARTICLE = () => `#version 300 es
-  precision mediump float;
-  in vec4 vColor;
-  out vec4 fragColor;
-  void main() {
-    fragColor = vColor;
-  }
-`;
 
+
+// 
+    // vColor = vec4(color, alpha * min(aLapsed, 1.0) * min(aDuration - aLapsed, 1.0));
+// 
+//     float alpha = ${particle.outsideAlpha.floatString()};
+//     vec3 color = vec3(0.0);
+//     vec4 P0;
+//     vec3 P1;
+//     vec2 P2;
+//     float x;
+//     float y;
+//     ${loop(options.boxes, i => `
+//       P0 = uLights.boxes[${i}].transform * vec4(vPosition, 1.0);
+//       P1 = P0.xyz / P0.w;
+//       P2 = P1.xy * (0.4 / P1.z);
+//       /*
+//       x = max(1.0 + (max(abs(P1.x), 1.0) - 1.0) * -1.0, 0.0);
+//       y = max(1.0 + (max(abs(P1.y), 1.0) - 1.0) * -1.0, 0.0);
+//       alpha = x * y;
+//       */
+//       color += uLights.boxes[${i}].diffuse;
+//       // if (P1.x > -0.99 && P1.x < 0.99 && P1.y > -0.99 && P1.y < 0.99 && P1.z > 0.0 && P1.z < 0.99) {
+//         // alpha = ${particle.insideAlpha.floatString()};
+//       // }
+//       if (P2.x > -0.99 && P2.x < 0.99 && P2.y > -0.99 && P2.y < 0.99) {
+//         alpha = ${particle.insideAlpha.floatString()};
+//       }
+//     `)}
 
 
 //   finalAmbient += uLights.points[${i}].ambient;

@@ -1,4 +1,4 @@
-export const createParticleSystem = (gl, { count = 1024, roomSize, maxDuration, speed }) => {
+export const createParticleSystem = (gl, { particle: { count = 1024, roomSize, maxDuration, speed }}) => {
   const positionData = new Float32Array(count * 3).map(() => (Math.random() * 2 - 1) * roomSize);
   const velocityData = new Float32Array(count * 3).map(() => (Math.random() * 2 - 1) * speed);
   const durationData = new Float32Array(count).map(() => Math.random() * maxDuration);
@@ -53,6 +53,7 @@ export const createParticleSystem = (gl, { count = 1024, roomSize, maxDuration, 
 
   let index = 1;
   return {
+    count,
     array: updateArrays,
     feedback: feedbackBuffers,
     next: () => (index = (index + 1) % 2),

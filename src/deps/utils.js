@@ -110,12 +110,26 @@ export const useMouseCamera = (app, canvas) => {
 };
 
 /* eslint-disable react-hooks/exhaustive-deps */
-export const useChange = (skipfirst, fn, changes) => {
-  const ref = useRef(false);
+export const useUpdatePrograms = (options, cb) => {
+  const previous = useRef();
   useEffect(() => {
-    if (ref.current || !skipfirst) fn();
-    ref.current = true;
-  }, changes);
+    if (!previous.current) cb(true);
+    else if (previous.current.options.length !== options.length) cb(false);
+    else {
+      for (let i = 0; i < options.length; i++) {
+        if (options[i].type !== previous.current.options[i].type) {
+          cb(false);
+          break;
+        }
+      }
+    }
+    previous.current = { options };
+  }, [options]);
+};
+
+export const useChange = (fn, changes) => {
+  const ctx = useRef({}).current;
+  useEffect(() => fn.apply(ctx), changes);
 };
 /* eslint-enable react-hooks/exhaustive-deps */
 
@@ -149,25 +163,29 @@ export const linkProgram = (gl, program) => {
   return program;
 };
 
-export const createGenericProgram = (gl, { vert, frag, before, link, after }) => {
-  const program = gl.createProgram();
-  gl.attachShader(program, loadShader(gl, gl.VERTEX_SHADER, vert));
-  gl.attachShader(program, loadShader(gl, gl.FRAGMENT_SHADER, frag));
-  const ctx = {
-    program,
-    use: () => gl.useProgram(program),
-    dispose: () => gl.deleteProgram(program),
-  };
-  if (before) before.call(ctx, program);
-  if (link) link.call(ctx, program);
-  else linkProgram(gl, program);
-  if (after) {
-    gl.useProgram(program);
-    after.call(ctx, program);
-    gl.useProgram(null);
-  }
-  return ctx;
-};
+export const createGenericProgram = (gl, { vert, frag, before, link, after }) => ({
+  program: null,
+  use() {
+    if (this.program === null) {
+      this.program = gl.createProgram();
+      gl.attachShader(this.program, loadShader(gl, gl.VERTEX_SHADER, vert()));
+      gl.attachShader(this.program, loadShader(gl, gl.FRAGMENT_SHADER, frag()));
+      if (before) before.call(this, this.program);
+      if (link) link.call(this, this.program);
+      else linkProgram(gl, this.program);
+      if (after) {
+        gl.useProgram(this.program);
+        after.call(this, this.program);
+        return;
+      }
+    }
+    gl.useProgram(this.program)
+  },
+  dispose() {
+    gl.deleteProgram(this.program);
+    this.program = null;
+  },
+});
 
 export const createGenericMesh = (gl, { vertices, indices, normals }) => {
   const mesh = {

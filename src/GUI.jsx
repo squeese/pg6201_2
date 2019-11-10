@@ -1,5 +1,8 @@
 import React from 'react';
+import { vec3 } from 'gl-matrix';
 import * as Options from './deps/Options';
+
+const normalizeVector = vector => vector.set(vec3.normalize([], vector.read()));
 
 export default () => (
   <Options.Container>
@@ -37,18 +40,22 @@ const ParticleOptions = () => (
       <Options.InputFloat name="insideAlpha" value={0.5} min={0} max={1} step={0.01} />
       <Options.InputFloat name="outsideAlpha" value={0.01} min={0} max={1} step={0.01} />
     </Options.ResetRow>
-    <Options.InputFloat header="Speed" name="speed" value={0.01} />
+    <Options.InputFloat header="Speed" name="speed" value={0.001} />
+    <Options.InputBool header="Blend" name="blend" value={true} />
+    <Options.InputBool header="Depth Test" name="depth" value={false} />
+    <Options.InputBool header="Enabled" name="enabled" value={true} />
+    <Options.InputVector header="Diffuse" name="diffuse" value={[1, 1, 1]} min={0} max={1} step={0.01} />
   </Options.Section>
 );
 
 const ObjectOptions = () => (
-  <Options.InputList header="Objects" name="objects" min={1} max={10}>
+  <Options.InputList header="Objects" name="objects" min={0} max={10}>
     <Options.InputDropdown header="Texture" name="mesh" value={['cube', 'suzanne']} />
     <Options.InputDropdown header="Texture" name="texture" value={['none', 'houseInterior']} />
     <Options.InputVector header="Diffuse" name="diffuse" value={[0.7, 0.7, 0.7]} min={0} max={1} step={0.01} />
     <Options.InputVector header="Specular" name="specular" value={[0.7, 0.7, 0.7]} min={0} max={1} step={0.01} />
     <Options.InputFloat header="Highlight" name="highlight" value={32} min={0.1} step={0.25} />
-    <Options.InputVector header="Position" name="position" value={[0.0, 1.0, 0.0]} step={0.1} />
+    <Options.InputVector header="Position" name="position" value={[0.0, 0.0, 0.0]} step={0.1} />
     <Options.InputVector header="Rotation" name="rotation" value={[0, 0, 0]} />
     <Options.InputVector header="Scale" name="scale" value={[1, 1, 1]} />
   </Options.InputList>
@@ -56,37 +63,41 @@ const ObjectOptions = () => (
 
 const LightOptions = () => (
   <Options.InputList header="Lights" name="lights" min={0} max={10}>
-    <Options.InputType>
-      <Options.InputTypeItem name="box">
-        <Options.InputVector header="Diffuse" name="diffuse" value={[0.7, 0.7, 0.7]} min={0} max={1} step={0.01} />
-        <Options.InputVector header="Specular" name="specular" value={[0.7, 0.7, 0.7]} min={0} max={1} step={0.01} />
-        <Options.InputVector header="Position" name="position" value={[0.0, 1.0, 0.0]} step={0.1} />
-        <Options.InputVector header="Rotation" name="rotation" value={[0, 0, 0]} />
-        <Options.InputVector header="Scale" name="scale" value={[1, 1, 1]} />
-        <Options.InputVector header="Shear" name="shear" value={[0, 0, 0]} />
-      </Options.InputTypeItem>
-      <Options.InputTypeItem name="direction">
-        <Options.InputVector header="Ambient" name="ambient" value={[0.05, 0.05, 0.05]} min={0} max={1} step={0.01} />
-        <Options.InputVector header="Diffuse" name="diffuse" value={[0.7, 0.7, 0.7]} min={0} max={1} step={0.01} />
-        <Options.InputVector header="Specular" name="specular" value={[0.7, 0.7, 0.7]} min={0} max={1} step={0.01} />
-        <Options.InputFloat header="Highlight" name="highlight" value={32} min={0} step={0.5} />
-        <Options.InputVector header="Direction" name="direction" value={[0.0, 1.0, 0.0]} step={0.1} />
-      </Options.InputTypeItem>
-      <Options.InputTypeItem name="point">
-        <Options.InputVector header="Ambient" name="ambient" value={[0.05, 0.05, 0.05]} min={0} max={1} step={0.01} />
-        <Options.InputVector header="Diffuse" name="diffuse" value={[0.7, 0.7, 0.7]} min={0} max={1} step={0.01} />
-        <Options.InputVector header="Specular" name="specular" value={[0.7, 0.7, 0.7]} min={0} max={1} step={0.01} />
-        <Options.InputFloat header="Highlight" name="highlight" value={32} min={0} step={0.5} />
-        <Options.InputVector header="Position" name="position" value={[0.0, 1.0, 0.0]} step={0.1} />
-      </Options.InputTypeItem>
-      <Options.InputTypeItem name="spot">
-        <Options.InputVector header="Ambient" name="ambient" value={[0.05, 0.05, 0.05]} min={0} max={1} step={0.01} />
-        <Options.InputVector header="Diffuse" name="diffuse" value={[0.7, 0.7, 0.7]} min={0} max={1} step={0.01} />
-        <Options.InputVector header="Specular" name="specular" value={[0.7, 0.7, 0.7]} min={0} max={1} step={0.01} />
-        <Options.InputFloat header="Highlight" name="highlight" value={32} min={0} step={0.5} />
-        <Options.InputVector header="Position" name="position" value={[0.0, 1.0, 0.0]} step={0.1} />
-        <Options.InputVector header="Direction" name="direction" value={[0.0, 1.0, 0.0]} step={0.1} />
-      </Options.InputTypeItem>
-    </Options.InputType>
+    <Options.InputType values={[
+      {name: 'box', render: () => (
+        <React.Fragment>
+          <Options.InputVector header="Diffuse" name="diffuse" value={[0.5, 0.6, 0.7]} min={0} max={1} step={0.01} />
+          <Options.InputVector header="Specular" name="specular" value={[0.7, 0.7, 0.7]} min={0} max={1} step={0.01} />
+          <Options.InputVector header="Position" name="position" value={[0.0, 0.0, 0.0]} step={0.1} />
+          <Options.InputVector header="Rotation" name="rotation" value={[0, 0, 0]} />
+          <Options.InputVector header="Scale" name="scale" value={[1, 1, 1]} />
+          <Options.InputVector header="Shear" name="shear" value={[0, 0, 0]} />
+        </React.Fragment>
+      )},
+      {name: 'direction', render: () => (
+        <React.Fragment>
+          <Options.InputVector header="Diffuse" name="diffuse" value={[0.7, 0.7, 0.7]} min={0} max={1} step={0.01} />
+          <Options.InputVector header="Specular" name="specular" value={[0.7, 0.7, 0.7]} min={0} max={1} step={0.01} />
+          <Options.InputVector header="Direction" name="direction" value={[0.0, 1.0, 0.0]} step={0.1} validate={normalizeVector} />
+        </React.Fragment>
+      )},
+      {name: 'point', render: () => (
+        <React.Fragment>
+          <Options.InputVector header="Diffuse" name="diffuse" value={[0.7, 0.7, 0.7]} min={0} max={1} step={0.01} />
+          <Options.InputVector header="Specular" name="specular" value={[0.7, 0.7, 0.7]} min={0} max={1} step={0.01} />
+          <Options.InputVector header="Position" name="position" value={[0.0, 0.0, 0.0]} step={0.1} />
+          <Options.InputFloat header="Attenuation" name="attenuation" value={1} min={0} step={0.1} />
+        </React.Fragment>
+      )},
+      {name: 'spot', render: () => (
+        <React.Fragment>
+          <Options.InputVector header="Diffuse" name="diffuse" value={[0.7, 0.7, 0.7]} min={0} max={1} step={0.01} />
+          <Options.InputVector header="Specular" name="specular" value={[0.7, 0.7, 0.7]} min={0} max={1} step={0.01} />
+          <Options.InputVector header="Position" name="position" value={[0.0, 0.0, 0.0]} step={0.1} />
+          <Options.InputVector header="Direction" name="direction" value={[0.0, 1.0, 0.0]} step={0.1} validate={normalizeVector} />
+        </React.Fragment>
+      )},
+    ]} />
   </Options.InputList>
 );
+

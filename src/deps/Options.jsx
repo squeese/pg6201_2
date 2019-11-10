@@ -73,37 +73,51 @@ export const Event = ({ onReady = noop, onChange = noop }) => {
 export const Float = ({ name, value, min = MIN, max = MAX, step = 0.1, children, ...props }) => {
   const [ pending, setPending ] = useState(null);
   const { state, update } = useContext(Context);
+  const ref = useRef();
   const scroll = useRef(0);
 
   useEffect(() => {
     update(proxy => {
-      if (proxy[name].read() === undefined)
+      if (proxy[name].read() === undefined) {
         proxy[name].set(value);
+      }
     });
-    return () => update(proxy => proxy[name].delete());
+    return () => {
+      update(proxy => {
+        proxy[name].delete();
+      });
+    };
   }, [update, name, value]);
 
   const onChange = ({ target }) => {
     const numValue = Math.min(max, Math.max(min, parseFloat(target.value)));
     if (target.value !== "" && target.value === numValue.toString())  {
       setPending(null);
-      update(proxy => proxy[name].set(numValue));
+      update(proxy => {
+        proxy[name].set(numValue);
+      });
     } else setPending(target.value);
   };
-  const onWheel = ({ deltaY, target }) => {
-    if (pending !== null || target.disabled) return;
-    if (scroll.current === 0) window.requestAnimationFrame(() => {
-      update(proxy => proxy[name].set(Math.min(max, Math.max(min, proxy[name].read() - scroll.current * step))));
-      scroll.current = 0;
-    });
-    scroll.current += deltaY * 0.1
-  };
+  useEffect(() => {
+    const node = ref.current;
+    const onWheel = e => {
+      if (pending !== null || e.target.disabled) return;
+      e.preventDefault();
+      if (scroll.current === 0) window.requestAnimationFrame(() => {
+        update(proxy => proxy[name].set(Math.min(max, Math.max(min, proxy[name].read() - scroll.current * step))));
+        scroll.current = 0;
+      });
+      scroll.current += e.deltaY * 0.1
+    };
+    node.addEventListener("wheel", onWheel, { passive: false });
+    return () => node.removeEventListener("wheel", onWheel);
+  }, [ref, update, max, min, name, pending, step]);
   const invalid = pending !== null;
   return children({
     value: invalid ? pending : floatFormat(state.hasOwnProperty(name) ? state[name] : value),
     invalid,
+    ref,
     onChange,
-    onWheel,
     ...props,
   });
 };
@@ -112,6 +126,7 @@ export const Int = ({ name, value, min = MIN, max = MAX, step = 1, children, ...
   const [ pending, setPending ] = useState(null);
   const { state, update } = useContext(Context);
   const scroll = useRef(0);
+  const ref = useRef();
   useEffect(() => {
     update(proxy => {
       if (proxy[name].read() === undefined)
@@ -126,20 +141,26 @@ export const Int = ({ name, value, min = MIN, max = MAX, step = 1, children, ...
       update(proxy => proxy[name].set(numValue));
     } else setPending(target.value);
   };
-  const onWheel = ({ deltaY, target }) => {
-    if (pending !== null || target.disabled) return;
-    if (scroll.current === 0) window.requestAnimationFrame(() => {
-      update(proxy => proxy[name].set(Math.min(max, Math.max(min, proxy[name].read() - Math.round(scroll.current) * step))));
-      scroll.current = 0;
-    });
-    scroll.current += deltaY * 0.1
-  };
+  useEffect(() => {
+    const node = ref.current;
+    const onWheel = e => {
+      if (pending !== null || e.target.disabled) return;
+      e.preventDefault();
+      if (scroll.current === 0) window.requestAnimationFrame(() => {
+        update(proxy => proxy[name].set(Math.min(max, Math.max(min, proxy[name].read() - Math.round(scroll.current) * step))));
+        scroll.current = 0;
+      });
+      scroll.current += e.deltaY * 0.1
+    };
+    node.addEventListener("wheel", onWheel, { passive: false });
+    return () => node.removeEventListener("wheel", onWheel);
+  }, [ref, update, max, min, name, pending, step]);
   const invalid = pending !== null;
   return children({
     value: invalid ? pending : state.hasOwnProperty(name) ? state[name] : value,
     invalid,
+    ref,
     onChange,
-    onWheel,
     ...props,
   });
 };
@@ -255,46 +276,22 @@ export const List = ({ name, children, min = 0, max = 10 }) => {
   );
 };
 
-export const InputType = ({ name, children }) => {
+export const InputType = ({ values }) => {
   const { state, update, ...context } = useContext(Context);
-  const value = useMemo(() => React.Children.map(children, child => child.props.name), [children]);
-  const [ selected, setSelected ] = useState(state.type || value[0]);
-
-  const items = useMemo(() => {
-    const items = {};
-    React.Children.map(children, child => {
-      items[child.props.name] = child;
-    });
-    return items;
-  }, [children]);
-
-  /*
-  useEffect(() => setSelected(value => {
-    console.log('??', value, state.type);
-    return state.type || value;
-  }), [state.type]);
-  */
-
-  const dropdownUpdate = useCallback(dispatcher => setSelected(selected => {
-    dispatcher({
-      type: {
-        read: () => selected,
-        delete: () => {},
-        set: value => {
-          selected = value;
-        },
-      }
-    });
-    return selected;
-  }), []);
-
-  const itemUpdate = useCallback(dispatcher => {
+  const choices = useMemo(() => values.map(({ name }) => name), [values]);
+  const [ selected, setSelected ] = useState(state.type || choices[0]);
+  useEffect(() => () => update(proxy => proxy.delete()), [update]);
+  const onChange = e => setSelected(e.target.value);
+  const mmUpdate = useCallback(dispatcher => {
     update(proxy => {
       try {
         proxy.type = selected;
         dispatcher(proxy.value);
       } catch(e) {
-        proxy.value = {};
+        proxy.set({
+          type: selected,
+          value: {},
+        });
         dispatcher(proxy.value);
       }
     });
@@ -303,17 +300,17 @@ export const InputType = ({ name, children }) => {
   return (
     <Fragment>
       <Label>Type</Label>
-      <Context.Provider value={{ state:{ type: state.type || selected }, update:dropdownUpdate, ...context }}>
-        <InputDropdown name="type" value={value} />
-      </Context.Provider>
-      <Context.Provider value={{ state: state.value || {}, update:itemUpdate, ...context }}>
-        {items[selected]}
+      <Select value={selected} onChange={onChange}>
+        {choices.map(choice => (
+          <option key={choice} value={choice}>{choice}</option>
+        ))}
+      </Select>
+      <Context.Provider value={{ state: state.value || {}, update:mmUpdate, ...context }}>
+        {values.filter(value => value.name === selected)[0].render()}
       </Context.Provider>
     </Fragment>
   );
 };
-
-export const InputTypeItem = ({ children }) => children;
 
 export const InputList = ({ header, name, min, max, children }) => {
   const { state, update } = useContext(Context);
@@ -355,6 +352,7 @@ export const InputList = ({ header, name, min, max, children }) => {
 
 export const Vector = ({ name, value = [0, 0, 0], children, validate = noop, ...props }) => {
   const { ready, state, update } = useContext(Context);
+  const active = useRef(true);
   const values = useRef(value);
   if (values.current.length !== value.length || values.current.reduce((s, v, i) => (s || value[i] !== v), false)) {
     values.current = value;
@@ -362,12 +360,15 @@ export const Vector = ({ name, value = [0, 0, 0], children, validate = noop, ...
 
   useEffect(() => {
     update(proxy => proxy[name].read() === undefined && proxy[name].set(values.current));
+    active.current = true;
     return () => {
+      active.current = false;
       update(proxy => proxy[name].delete());
     };
   }, [ update, name, values ]);
 
   const mmUpdate = useCallback(dispatcher => {
+    if (!active.current) return;
     update(proxy => {
       try {
         dispatcher(proxy[name]);
@@ -377,7 +378,7 @@ export const Vector = ({ name, value = [0, 0, 0], children, validate = noop, ...
       }
       validate(proxy[name]);
     });
-  }, [ update, name, validate, values ]);
+  }, [update, name, values, validate]);
 
   return (
     <Context.Provider value={{ ready, update: mmUpdate, state: state[name] || [] }}>
@@ -442,20 +443,20 @@ export const Reset = ({ name, value }) => {
   );
 };
 
-export const InputFloat = ({ header = null, reset = true, name, value, ...props }) => (
+export const InputFloat = ({ header = null, ref, reset = true, name, value, ...props }) => (
   <Fragment>
     {header && <Label>{header}{!reset ? null : <Reset name={name} value={value} />}</Label>}
     <Float name={name} value={value} {...props}>
-      {props => <Input {...props} />}
+      {props => <Input ref={ref} {...props} />}
     </Float>
   </Fragment>
 );
 
-export const InputInt = ({ header = null, reset = true, name, value, ...props }) => (
+export const InputInt = ({ header = null, ref, reset = true, name, value, ...props }) => (
   <Fragment>
     {header && <Label>{header}{!reset ? null : <Reset name={name} value={value} />}</Label>}
     <Int name={name} value={value} {...props}>
-      {props => <Input {...props} />}
+      {props => <Input ref={ref} {...props} />}
     </Int>
   </Fragment>
 );
