@@ -35,7 +35,7 @@ const ParticleOptions = () => (
     </Options.ResetRow>
     <Options.InputFloat header="Speed" name="speed" value={0.001} decimals={1000} step={0.01} />
     <Options.ResetRow label="Size" misc="particle/room">
-      <Options.InputFloat name="size" value={1} min={0.1} max={10} />
+      <Options.InputFloat name="size" value={5} min={0.1} />
       <Options.InputFloat name="roomSize" value={1} />
     </Options.ResetRow>
     <Options.InputBool header="Scale" misc="on distance" name="scale" value={true} />
