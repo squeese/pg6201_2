@@ -27,29 +27,6 @@ const GlobalStyle = createGlobalStyle`
   }
 `;
 
-/*
-const preset = window.sessionStorage.getItem("preset");
-let timeout;
-      <Options.Context.Consumer>
-        {({ ready, state }) => {
-          if (ready) {
-            clearTimeout(timeout);
-            timeout = setTimeout(() => window.sessionStorage.setItem("preset", JSON.stringify(state)), 250);
-          }
-          return null;
-        }}
-      </Options.Context.Consumer>
-      <button style={{ position: 'absolute', top: 0, right: 0}} children="reset" onClick={() => {
-        window.sessionStorage.removeItem("preset");
-        setTimeout(() => window.location.reload(), 0);
-      }} />
-      <button style={{ position: 'absolute', top: '32px', right: 0}} children="save" onClick={() => {
-        console.log(window.sessionStorage.getItem("preset"));
-        // window.sessionStorage.removeItem("preset");
-        // setTimeout(() => window.location.reload(), 0);
-      }} />
-*/
-
 const SaveButton = () => {
   const { state } = React.useContext(Options.Context);
   const ref = React.useRef();

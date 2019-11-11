@@ -1,0 +1,172 @@
+{
+  "camera": {
+    "fov": 90,
+    "offset": 2.9000000000000026,
+    "rotation": [
+      -0.094710570770543,
+      0.2558460256311508,
+      0.01293005595777672,
+      0.9619766756011734
+    ],
+    "roll": true,
+    "__minimized": true
+  },
+  "particle": {
+    "count": 200000,
+    "minDuration": 1,
+    "maxDuration": 2,
+    "size": 1,
+    "roomSize": 4,
+    "speed": 0.001,
+    "blend": true,
+    "depth": true,
+    "enabled": true,
+    "diffuse": [
+      0.5,
+      0.5,
+      0.5
+    ],
+    "alpha": 0.5,
+    "__minimized": false
+  },
+  "objects": [
+    {
+      "mesh": "inverted cube",
+      "diffuse": [
+        0.7,
+        0.7,
+        0.7
+      ],
+      "specular": [
+        0.7,
+        0.7779999999999998,
+        0.7
+      ],
+      "highlight": 113.025,
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        3,
+        3,
+        3
+      ]
+    },
+    {
+      "mesh": "suzanne",
+      "diffuse": [
+        0.7,
+        0.7,
+        0.7
+      ],
+      "specular": [
+        0.7,
+        0.7,
+        0.7
+      ],
+      "highlight": 99.97499999999994,
+      "position": [
+        0,
+        0,
+        -1.5
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ]
+    }
+  ],
+  "lights": [
+    {
+      "type": "point",
+      "value": {
+        "diffuse": [
+          1,
+          1,
+          1
+        ],
+        "specular": [
+          0.7,
+          0.7,
+          0.7
+        ],
+        "position": [
+          -2,
+          0,
+          -1
+        ],
+        "attenuation": 3
+      }
+    },
+    {
+      "type": "point",
+      "value": {
+        "diffuse": [
+          0.7,
+          0.7,
+          0.7
+        ],
+        "specular": [
+          0.7,
+          0.7,
+          0.7
+        ],
+        "position": [
+          2,
+          0,
+          -1
+        ],
+        "attenuation": 3
+      }
+    },
+    {
+      "type": "box",
+      "value": {
+        "diffuse": [
+          0.4119999999999999,
+          1,
+          0.48099999999999987
+        ],
+        "specular": [
+          0.7,
+          0.7,
+          0.7
+        ],
+        "position": [
+          0,
+          1.8000000000000036,
+          -0.8700000000000003
+        ],
+        "rotation": [
+          90,
+          8.7,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          5
+        ],
+        "shear": [
+          0,
+          0,
+          0.21000000000000008
+        ]
+      }
+    }
+  ],
+  "__open": false
+}

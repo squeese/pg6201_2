@@ -7,16 +7,6 @@ const { POSITIVE_INFINITY:MAX, NEGATIVE_INFINITY:MIN } = Number;
 const floatFormat = v => (v * 100 | 0) / 100;
 const noop = () => {};
 
-let timer;
-let counter = 0;
-const wtf = () => {
-  clearTimeout(timer);
-  timer = setTimeout(() => {
-    counter = 0;
-  }, 500);
-  return ++counter >= 300;
-};
-
 export const Provider = ({ children, preset = null }) => {
   const [ state, setState ] = useState({});
   const [ ready, setReady ] = useState(null);
@@ -30,10 +20,6 @@ export const Provider = ({ children, preset = null }) => {
     setReady(true);
     setState(proxy.current());
     updater.current = dispatcher => {
-      if (wtf()) {
-        console.log('WTF');
-        return;
-      }
       dispatcher(proxy.current);
       setState(state => {
         if (state !== proxy.current.state) {
@@ -56,7 +42,7 @@ export const Provider = ({ children, preset = null }) => {
   }, [updater]);
   return (
     <Context.Provider
-      value={{ ready, update, state, proxy: proxy.current }}
+      value={{ ready, update, state, proxy: proxy.current, preset }}
       children={children}
     />
   );
@@ -518,11 +504,12 @@ export const InputVector = ({ header = null, reset = true, name, value, validate
 );
 
 export const Container = ({ children }) => {
-  const [open, setOpen] = useState(true);
+  const { proxy, update } = useContext(Context);
+  const open = proxy.state.hasOwnProperty('__open') ? proxy.state.__open : true;
   const springs = {
     position: useSpring(open ? 0 : 100, { stiffness: 0.04, damping: 0.68 }),
   };
-  const toggle = () => setOpen(v => !v);
+  const toggle = () => update(proxy => proxy.__open.set(!open));
   return (
     <AnimateSpring springs={springs}>
       {({ position }) => (

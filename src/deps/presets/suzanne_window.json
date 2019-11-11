@@ -1,21 +1,21 @@
 {
   "camera": {
     "fov": 45,
-    "offset": 10.799999999999985,
+    "offset": 6.000000000000021,
     "rotation": [
-      -0.08423242556634891,
-      -0.331017133429519,
-      -0.018751312633270886,
-      0.9396686366618666
+      -0.04159692412474935,
+      -0.18293155400284034,
+      -0.012623386755718998,
+      0.9821602150264465
     ],
-    "__minimized": false,
+    "__minimized": true,
     "roll": true
   },
   "particle": {
-    "count": 131072,
+    "count": 250000,
     "minDuration": 1,
     "maxDuration": 2,
-    "size": 1,
+    "size": 1.3699999999999997,
     "roomSize": 3,
     "insideAlpha": 0.5,
     "outsideAlpha": 0.01,
@@ -28,7 +28,8 @@
       1,
       1
     ],
-    "__minimized": false
+    "__minimized": false,
+    "alpha": 0.3909999999999999
   },
   "objects": [
     {
@@ -66,18 +67,18 @@
       "texture": "none",
       "diffuse": [
         0.7,
-        0.7,
+        0.953,
         0.7
       ],
       "specular": [
-        0.7,
-        0.7,
+        0.49,
+        1,
         0.7
       ],
-      "highlight": 32,
+      "highlight": 40.75000000000001,
       "position": [
         -5.551115123125783e-17,
-        0.19000000000000022,
+        0.3300000000000004,
         0.48
       ],
       "rotation": [
@@ -90,34 +91,58 @@
         1,
         1
       ]
+    },
+    {
+      "mesh": "inverted cube",
+      "texture": "none",
+      "diffuse": [
+        1,
+        1,
+        1
+      ],
+      "specular": [
+        1,
+        1,
+        1
+      ],
+      "highlight": 4.949999999999999,
+      "position": [
+        -2.9099999999999997,
+        0.3899999999999999,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        0.1,
+        1.2,
+        1.2
+      ]
     }
   ],
   "lights": [
     {
-      "type": "spot",
+      "type": "point",
       "value": {
         "diffuse": [
-          1,
-          1,
-          1
+          0.1,
+          0.1,
+          0.1
         ],
         "specular": [
-          1,
-          1,
-          1
-        ],
-        "position": [
-          -3.0000000000000027,
+          0,
           0,
           0
         ],
-        "direction": [
-          -1,
-          2.2074025253708982e-18,
+        "position": [
+          -2.5,
+          0,
           0
         ],
-        "attenuation": 1.1,
-        "angle": 0.3299999999999996
+        "attenuation": 4.163336342344337e-17
       }
     },
     {
@@ -125,7 +150,7 @@
       "value": {
         "diffuse": [
           0.5,
-          0.6,
+          0.7420000000000001,
           0.7
         ],
         "specular": [
@@ -160,7 +185,7 @@
       "value": {
         "diffuse": [
           0.5,
-          0.6,
+          0.7020000000000001,
           0.7
         ],
         "specular": [
@@ -195,7 +220,7 @@
       "value": {
         "diffuse": [
           0.5,
-          0.6,
+          0.7670000000000001,
           0.7
         ],
         "specular": [
@@ -230,7 +255,7 @@
       "value": {
         "diffuse": [
           0.5,
-          0.6,
+          0.7290000000000001,
           0.7
         ],
         "specular": [
@@ -249,7 +274,7 @@
           0
         ],
         "scale": [
-          0.5,
+          0.5100000000000001,
           0.5,
           7
         ],
@@ -261,6 +286,7 @@
       }
     }
   ],
-  "__objects__minimized": false,
-  "__lights__minimized": false
+  "__objects__minimized": true,
+  "__lights__minimized": true,
+  "__open": false
 }

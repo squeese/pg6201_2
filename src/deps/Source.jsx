@@ -54,6 +54,7 @@ const Container = styled.div`
 
 const SelectButton = styled.button`
   background: ${({ selected }) => selected ? '#000' : '#012A'};
+  font-weight: ${({ selected }) => selected ? 'bold' : 'normal'};
   color: white;
   outline: none;
   border: 0;
@@ -72,6 +73,7 @@ const Wrapper = styled.div`
   font-size: 0.8rem;
   position: relative;
   text-align: left;
+  margin-top: -4px;
 `;
 
 const CloseButton = styled.button`
