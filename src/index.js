@@ -2,6 +2,7 @@ import React from 'react';
 import { render } from 'react-dom';
 import { createGlobalStyle } from 'styled-components';
 import * as Options from './deps/Options';
+import Presets from './deps/Presets';
 import GUI from './GUI';
 import App from './App';
 // import App from './Test';
@@ -26,27 +27,55 @@ const GlobalStyle = createGlobalStyle`
   }
 `;
 
+/*
 const preset = window.sessionStorage.getItem("preset");
 let timeout;
+      <Options.Context.Consumer>
+        {({ ready, state }) => {
+          if (ready) {
+            clearTimeout(timeout);
+            timeout = setTimeout(() => window.sessionStorage.setItem("preset", JSON.stringify(state)), 250);
+          }
+          return null;
+        }}
+      </Options.Context.Consumer>
+      <button style={{ position: 'absolute', top: 0, right: 0}} children="reset" onClick={() => {
+        window.sessionStorage.removeItem("preset");
+        setTimeout(() => window.location.reload(), 0);
+      }} />
+      <button style={{ position: 'absolute', top: '32px', right: 0}} children="save" onClick={() => {
+        console.log(window.sessionStorage.getItem("preset"));
+        // window.sessionStorage.removeItem("preset");
+        // setTimeout(() => window.location.reload(), 0);
+      }} />
+*/
+
+const SaveButton = () => {
+  const { state } = React.useContext(Options.Context);
+  const ref = React.useRef();
+  const save = () => {
+    const input = ref.current;
+    input.value = JSON.stringify(state);
+    input.select();
+    document.execCommand('copy');
+  };
+  return (
+    <div style={{ position: 'fixed', bottom: 32, right: 0 }}>
+      <input ref={ref} />
+      <button onClick={save}>save</button>
+    </div>
+  );
+};
+
 render((
-  <Options.Provider preset={preset && JSON.parse(preset)}>
-    <GlobalStyle />
-    <GUI />
-    <Options.Context.Consumer>
-      {({ ready, state, proxy }) => ready && <App options={state} proxy={proxy} />}
-    </Options.Context.Consumer>
-    <Options.Context.Consumer>
-      {({ ready, state }) => {
-        if (ready) {
-          clearTimeout(timeout);
-          timeout = setTimeout(() => window.sessionStorage.setItem("preset", JSON.stringify(state)), 250);
-        }
-        return null;
-      }}
-    </Options.Context.Consumer>
-    <button style={{ position: 'absolute', top: 0, right: 0}} children="reset" onClick={() => {
-      window.sessionStorage.removeItem("preset");
-      setTimeout(() => window.location.reload(), 0);
-    }} />
-  </Options.Provider>),
+  <Presets>
+    <Options.Provider>
+      <GlobalStyle />
+      <GUI />
+      <Options.Context.Consumer>
+        {({ ready, state, proxy }) => ready && <App options={state} proxy={proxy} />}
+      </Options.Context.Consumer>
+      <SaveButton />
+    </Options.Provider>
+  </Presets>),
   document.getElementById('root'));

@@ -10,7 +10,7 @@ export default ({ options, proxy }) => {
   }, [options]);
 
   return (
-    <div style={{ overflow: 'scroll', position: 'fixed', top: 0, left: '256px', right: 0, bottom: 0, fontSize: '0.6rem' }}>
+    <div style={{ overflow: 'scroll', position: 'fixed', top: 50, left: '256px', right: 0, bottom: 0, fontSize: '0.6rem' }}>
       <div>
         {state.map((_, index) => (
           <button key={index} onClick={() => setPage(index)}>

@@ -101,7 +101,9 @@ struct Point {
 struct Spot {
   vec3 diffuse;
   vec3 specular;
+  float angle;
   vec3 direction;
+  float attenuation;
 };
 uniform Lights {
   ${B > 0 ? `Box box[${B}];` : ''} 
@@ -131,18 +133,11 @@ LIGHT_COLORS_UNIFORM_BLOCK.create = (gl, { lights }) => UBO.create(gl,
   UBO.array('spot', lights.filter(SPOT).length, [
     UBO.vec3('diffuse'),
     UBO.vec3('specular'),
+    UBO.float('angle'),
     UBO.vec3('direction'),
+    UBO.float('attenuation'),
   ]),
 );
-
-const MESH_BOX_LIGHT = i => `
-  pos4 = uLights.box[${i}].transform * vec4(vPosition, 1.0);
-  pos3 = pos4.xyz / pos4.w;
-  if (pos3.x > -1.0 && pos3.x < 1.0 && pos3.y > -1.0 && pos3.y < 1.0) {// && pos3.z > 0.0 && pos3.z < 1.0) {
-    L = uLights.box[${i}].direction;
-    color += diffuseColor(uLights.box[${i}].diffuse, N, L);
-  }
-  `;
 
 const PARTICLE_BOX_LIGHT = i => `
   pos4 = uLights.box[${i}].transform * vec4(vPosition, 1.0);
@@ -152,32 +147,53 @@ const PARTICLE_BOX_LIGHT = i => `
   }
 `.trim();
 
-const MESH_DIRECTION_LIGHT = i => `
-  L = uLights.direction[${i}].direction;
-  D = 1.0 / length(L);
-  color += diffuseColor(uLights.direction[${i}].diffuse, N, L) * D;
-  color += specularColor(uLights.direction[${i}].specular, N, L, V) * D;
-`.trim();
-
-const MESH_POINT_LIGHT = (i, j) => `
-  L = normalize(vDirections[${j}]);
-  D = 1.0 / pow(length(vDirections[${j}]), uLights.point[${i}].attenuation);
-  color += diffuseColor(uLights.point[${i}].diffuse, N, L) * D;
-  color += specularColor(uLights.point[${i}].specular, N, L, V) * D;
-`.trim();
-
 const PARTICLE_POINT_LIGHT = (i, j) => `
   L = uDirections[${j}] - aPosition;
   D = 1.0 / pow(length(L), uLights.point[${i}].attenuation);
   color += uDiffuse * uLights.point[${i}].diffuse * D;
 `.trim();
 
-const MESH_SPOT_LIGHT = (i, j) => `
-  L = normalize(vDirections[${j}]);
-  D = 1.0 / pow(length(L), uLights.spot[${i}].attenuation);
-  color += diffuseColor(uLights.spot[${i}].diffuse, N, L) * D;
-  color += specularColor(uLights.spot[${i}].specular, N, L, V) * D;
-`.trim();
+const BOX_LIGHT_COLOR_FUNCTION = ({ lights }) => !lights.filter(BOX).length ? '' : `
+vec3 boxLightColor(int lindex, vec3 N) {
+  vec4 pos4 = uLights.box[lindex].transform * vec4(vPosition, 1.0);
+  vec3 pos3 = pos4.xyz / pos4.w;
+  vec3 color = vec3(0.0);
+  if (pos3.x > -1.0 && pos3.x < 1.0 && pos3.y > -1.0 && pos3.y < 1.0 && pos3.z > 0.0 && pos3.z < 1.0) {
+    vec3 L = uLights.box[lindex].direction;
+    color = diffuseColor(uLights.box[lindex].diffuse, N, L);
+  }
+  return color;
+}`;
+
+const DIRECTION_LIGHT_COLOR_FUNCTION = ({ lights }) => !lights.filter(DIRECTION).length ? '' : `
+vec3 directionLightColor(int lindex, vec3 N, vec3 V) {
+  vec3 L = uLights.direction[lindex].direction;
+  vec3 color = vec3(0.0);
+  color += diffuseColor(uLights.direction[lindex].diffuse, N, L);
+  color += specularColor(uLights.direction[lindex].specular, N, L, V);
+  return color;
+}`;
+
+const POINT_LIGHT_COLOR_FUNCTION = ({ lights }) => !lights.filter(POINT).length ? '' : `
+vec3 pointLightColor(int lindex, int dindex, vec3 N, vec3 V) {
+  vec3 L = normalize(vDirections[dindex]);
+  float D = 1.0 / pow(length(vDirections[dindex]), uLights.point[lindex].attenuation);
+  vec3 color = vec3(0.0);
+  color += diffuseColor(uLights.point[lindex].diffuse, N, L);
+  color += specularColor(uLights.point[lindex].specular, N, L, V);
+  return color * D;
+}`;
+
+const SPOT_LIGHT_COLOR_FUNCTION = ({ lights }) => !lights.filter(SPOT).length ? '' : `
+vec3 spotLightColor(int lindex, int dindex, vec3 N, vec3 V) {
+  vec3 L = normalize(vDirections[dindex]);
+  float D = 1.0 / pow(length(vDirections[dindex]), uLights.spot[lindex].attenuation);
+  float C = pow(clamp(dot(L, normalize(uLights.spot[lindex].direction)), 0.0, 1.0), uLights.spot[lindex].angle);
+  vec3 color = vec3(0.0);
+  color += diffuseColor(uLights.spot[lindex].diffuse, N, L);
+  color += specularColor(uLights.spot[lindex].specular, N, L, V);
+  return color * D * C;
+}`;
 
 export const OBJECT_VERTEX_SHADER = options => `#version 300 es
 precision mediump float;
@@ -216,18 +232,19 @@ vec3 specularColor(vec3 color, vec3 N, vec3 L, vec3 V) {
   vec3 H = normalize(L + V);
   return uMaterial.specular[uMatID] * color * pow(clamp(dot(N, H), 0.0, 1.0), uMaterial.highlight[uMatID]);
 }
+${BOX_LIGHT_COLOR_FUNCTION(options)}
+${DIRECTION_LIGHT_COLOR_FUNCTION(options)}
+${POINT_LIGHT_COLOR_FUNCTION(options)}
+${SPOT_LIGHT_COLOR_FUNCTION(options)}
 void main() {
   vec3 color = vec3(0.0);
   vec3 N = normalize(vNormal);
   vec3 V = normalize(vCamera);
-  vec3 L, pos3;
-  vec4 pos4;
-  float D;
   ${loopLights(options.lights, (light, i, j) => {
-    if (BOX(light)) return MESH_BOX_LIGHT(i);
-    if (DIRECTION(light)) return MESH_DIRECTION_LIGHT(i);
-    if (POINT(light)) return MESH_POINT_LIGHT(i, j);
-    if (SPOT(light)) return MESH_SPOT_LIGHT(i, j);
+    if (BOX(light))       return `color += boxLightColor(${i}, N);`;
+    if (DIRECTION(light)) return `color += directionLightColor(${i}, N, V);`;
+    if (POINT(light))     return `color += pointLightColor(${i}, ${j}, N, V);`;
+    if (SPOT(light))      return `color += spotLightColor(${i}, ${j}, N, V);`;
   })}
   fragColor = vec4(color, 1.0);
 }`;

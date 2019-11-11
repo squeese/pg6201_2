@@ -1,25 +1,25 @@
 import React, { Fragment, createContext, useContext, useMemo, useState, useEffect, useRef, useCallback } from 'react';
+import { useSpring, AnimateSpring } from './utils';
 import styled from 'styled-components';
 
 export const Context = createContext({});
 const { POSITIVE_INFINITY:MAX, NEGATIVE_INFINITY:MIN } = Number;
 const floatFormat = v => (v * 100 | 0) / 100;
 const noop = () => {};
-const useDebounce = (delay = 0) => {
-  const timeout = useRef(null);
-  return cb => {
-    clearTimeout(timeout.current);
-    timeout.current = setTimeout(() => {
-      cb();
-      timeout.current = null;
-    }, delay);
-  };
+
+let timer;
+let counter = 0;
+const wtf = () => {
+  clearTimeout(timer);
+  timer = setTimeout(() => {
+    counter = 0;
+  }, 500);
+  return ++counter >= 300;
 };
 
 export const Provider = ({ children, preset = null }) => {
   const [ state, setState ] = useState({});
   const [ ready, setReady ] = useState(null);
-  const debounce = useDebounce(0);
   const baseline = useRef(changeProxy({}));
   const proxy = useRef(changeProxy(preset || {}));
   const updater = useRef(dispatcher => {
@@ -30,6 +30,10 @@ export const Provider = ({ children, preset = null }) => {
     setReady(true);
     setState(proxy.current());
     updater.current = dispatcher => {
+      if (wtf()) {
+        console.log('WTF');
+        return;
+      }
       dispatcher(proxy.current);
       setState(state => {
         if (state !== proxy.current.state) {
@@ -39,14 +43,17 @@ export const Provider = ({ children, preset = null }) => {
         return state;
       });
     };
-  }, [ proxy, debounce ]);
+  }, [ proxy ]);
+
   useEffect(() => {
-    proxy.current = changeProxy(preset || baseline.current());
+    // proxy.current = changeProxy(preset || baseline.current());
+    proxy.current(preset || baseline.current());
     setState(proxy.current());
-  }, [ preset ]);
+  }, [preset]);
+
   const update = useCallback((dispatcher, who) => {
     updater.current(dispatcher);
-  }, [ updater ]);
+  }, [updater]);
   return (
     <Context.Provider
       value={{ ready, update, state, proxy: proxy.current }}
@@ -198,13 +205,17 @@ export const Dropdown = ({ name, value, children }) => {
 
 export const Dictionary = ({ name, children }) => {
   const { ready, state, update } = useContext(Context);
+  const active = useRef(true);
   useEffect(() => {
+    active.current = true;
     update(proxy => proxy[name].read() === undefined && proxy[name].set({}));
     return () => {
+      active.current = false;
       update(proxy => proxy[name].delete());
     };
   }, [ update, name ]);
   const mmUpdate = useCallback(dispatcher => {
+    if (!active.current) return;
     update(proxy => {
       try {
         dispatcher(proxy[name]);
@@ -225,32 +236,40 @@ export const Dictionary = ({ name, children }) => {
 export const List = ({ name, children, min = 0, max = 10 }) => {
   const [ list, setList ] = useState(Array.from(Array(min)).map((_, i) => i));
   const { ready, state, update } = useContext(Context);
+  const active = useRef(true);
 
   useEffect(() => {
+    active.current = true;
     update(proxy => {
       if (proxy[name].read() === undefined) proxy[name].set([]);
       else setList(proxy[name].read().map((_, i) => i));
     });
     return () => {
+      active.current = false;
       update(proxy => proxy[name].delete());
     };
   }, [update, name]);
 
   useEffect(() => {
-    // state changes
-    if (state[name] && list.length < state[name].length)
-      update(proxy => proxy[name].splice(-1));
-  }, [list, name, state, update]);
+    update(proxy => {
+      if (proxy[name].read() && list.length < proxy[name].read().length) {
+        proxy[name].splice(-1);
+      }
+    });
+  }, [list, name, update]);
 
   useEffect(() => {
     if (state[name] === undefined) return;
     setList(list => {
-      if (list.length === state[name].length) return list;
+      if (list.length === state[name].length) {
+        return list;
+      }
       return state[name].map((_, i) => i);
     });
   }, [state, name]);
 
   const mmUpdate = useCallback(dispatcher => {
+    if (!active.current) return;
     update(proxy => {
       try {
         dispatcher(proxy[name]);
@@ -498,19 +517,65 @@ export const InputVector = ({ header = null, reset = true, name, value, validate
   </Fragment>
 );
 
-export const Json = () => {
-  const { state } = useContext(Context);
-  return <Pre>{JSON.stringify(state, null, 3)}</Pre>;
+export const Container = ({ children }) => {
+  const [open, setOpen] = useState(true);
+  const springs = {
+    position: useSpring(open ? 0 : 100, { stiffness: 0.04, damping: 0.68 }),
+  };
+  const toggle = () => setOpen(v => !v);
+  return (
+    <AnimateSpring springs={springs}>
+      {({ position }) => (
+        <Fragment>
+          <RootContainer style={{ transform: `translate3d(-${position}%,0,0)` }}>
+            <ToggleContainer style={{ transform: `translate3d(${position}%,0,0)`}}>
+              <ToggleWrapper>
+                {children}
+              </ToggleWrapper>
+            </ToggleContainer>
+          </RootContainer>
+          <OpenCloseButton onClick={toggle}>
+            {open ? 'close options' : 'open options'}
+          </OpenCloseButton>
+        </Fragment>
+      )}
+    </AnimateSpring>
+  );
 };
 
-export const Container = styled.div`
+const OpenCloseButton = styled.button`
+  position: fixed;
+  left: 256px;
+  top: 0;
+  background: #012A;
+  color: white;
+  outline: none;
+    border: 0;
+  &:hover {
+    background: #000;
+  }
+`;
+
+const ToggleContainer = styled.div`
+  width: 100%;
+  height: 100%;
+`;
+
+const ToggleWrapper = styled.div`
+  width: 100%;
+  height: 100%;
+  overflow-y: scroll;
+`;
+
+
+export const RootContainer = styled.div`
   position: absolute;
   top: 0;
   left: 0;
   bottom: 0;
   width: 256px;
   background: #124D;
-  overflow-y: scroll;
+  overflow: hidden;
 `;
 
 export const Wrapper = styled.div`
@@ -711,7 +776,14 @@ export const changeProxy = (function () {
     return target.proxies[key];
   };
   const rootHandlers = {
-    apply: target => target.state,
+    apply: (target, _, args) => {
+      if (args.length === 1) {
+        target.state = args[0];
+        target.proxies = {};
+        delete target.node;
+      }
+      return target.state;
+    },
     set: (target, key, value) => {
       getLeafProxy(target, key).set(value);
       return true;

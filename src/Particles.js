@@ -1,16 +1,23 @@
 export const createParticleSystem = (gl, { particle: { count = 1024, roomSize, maxDuration, speed }}) => {
+  // Just some initial data for the particles
   const positionData = new Float32Array(count * 3).map(() => (Math.random() * 2 - 1) * roomSize);
   const velocityData = new Float32Array(count * 3).map(() => (Math.random() * 2 - 1) * speed);
   const durationData = new Float32Array(count).map(() => Math.random() * maxDuration);
   const lapsedData = new Float32Array(count).map(() => Math.random() * maxDuration);
+
+  // There are 8 buffers holding all the particle data, a double set of 4
+  // We will be swapping between them each render cycle, the result of the first 4
+  // buffers are stored on the last 4, swap them, repeat
   const positionBuffers = [gl.createBuffer(), gl.createBuffer()];
   const velocityBuffers = [gl.createBuffer(), gl.createBuffer()];
   const durationBuffers = [gl.createBuffer(), gl.createBuffer()];
   const lapsedBuffers = [gl.createBuffer(), gl.createBuffer()];
+
+  // Feedback buffers describing how to to the transformfeedback
   const feedbackBuffers = [gl.createTransformFeedback(), gl.createTransformFeedback()];
   const updateArrays = [gl.createVertexArray(), gl.createVertexArray()];
 
-  // Populate the 'update' buffers with data
+  // Populate the buffers with initial data
   for (let i = 0; i < 2; i++) {
     gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffers[i]);
     gl.bufferData(gl.ARRAY_BUFFER, positionData, gl.STREAM_COPY);
@@ -22,15 +29,17 @@ export const createParticleSystem = (gl, { particle: { count = 1024, roomSize, m
     gl.bufferData(gl.ARRAY_BUFFER, lapsedData, gl.STREAM_COPY);
     gl.bindBuffer(gl.ARRAY_BUFFER, null);
   }
+
   for (let i = 0; i < 2; i++) {
-    // Setup the transformFeedbacks
+    // Bind the transformFeedback buffers to the correct array buffers
     gl.bindTransformFeedback(gl.TRANSFORM_FEEDBACK, feedbackBuffers[i]);
     gl.bindBufferBase(gl.TRANSFORM_FEEDBACK_BUFFER, 0, positionBuffers[(i + 1) % 2]);
     gl.bindBufferBase(gl.TRANSFORM_FEEDBACK_BUFFER, 1, velocityBuffers[(i + 1) % 2]);
     gl.bindBufferBase(gl.TRANSFORM_FEEDBACK_BUFFER, 2, durationBuffers[(i + 1) % 2]);
     gl.bindBufferBase(gl.TRANSFORM_FEEDBACK_BUFFER, 3, lapsedBuffers[(i + 1) % 2]);
     gl.bindTransformFeedback(gl.TRANSFORM_FEEDBACK, null);
-    // Setup the Vertex Array
+
+    // Setup the Vertex Arrays
     gl.bindVertexArray(updateArrays[i]);
     gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffers[i]);
     gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);

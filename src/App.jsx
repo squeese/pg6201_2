@@ -7,34 +7,65 @@ import * as utils from './deps/utils';
 import * as shaders from './Shaders';
 import * as particles from './Particles';
 
+const prev = {};
+
 export default ({ options, proxy }) => {
   const app = useRef({}).current;
   const canvas = useRef();
-  const mouse = utils.useMouseCamera(app, canvas);
+  const updateMouse = utils.useMouseCamera(app, canvas);
   const [ meshVertSource, setMeshVertSource ] = useState('');
   const [ meshFragSource, setMeshFragSource ] = useState('');
   const [ partVertSource, setPartVertSource ] = useState('');
   const [ partFragSource, setPartFragSource ] = useState('');
+  const [ fps, setFps ] = useState(0);
+  const updateFps = utils.useFps(fps => setFps(fps));
   utils.useFullscreenCanvas(app, canvas, proxy);
 
-  useEffect(function Initialize() {
+  // Initializtion of the 'application', this is only run once
+  useEffect(function InitializeApplication() {
+    console.log('initialization');
+
+    console.log(prev.app === app, prev.can === canvas, prev.prox === proxy);
+
+    prev.app = app;
+    prev.can = canvas;
+    prev.prox = proxy;
+
     const { gl } = app;
     gl.clearColor(0.3, 0.4, 0.6, 1.0);
     gl.enable(gl.CULL_FACE);
     gl.enable(gl.DEPTH_TEST);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
-    // Meshes etc,
-    app.boxMesh = utils.createGenericMesh(gl, utils.createFlatCubeMesh(1, true));
+
+    // Creating the buffers describing vertex layouts
+    // The meshes are static, wont be needing recalculation, so we can 'instantiate' them
+    // now, the particle system is created as the we get access to the options (or they change).
+    app.boxMeshNormal = utils.createGenericMesh(gl, utils.createFlatCubeMesh(1, false));
+    app.boxMeshInverted = utils.createGenericMesh(gl, utils.createFlatCubeMesh(1, true));
     app.suzanneMesh = utils.createGenericMesh(gl, suzanne);
     app.particles = null;
+
     // Uniform Buffer Objects
+    // Same deal here, only the camera buffer will stay the same.
+    // The material and model buffer depends on the amount of 'objects' in the scene,
+    // and the direction and lights buffer depends on the amount of lights in the scene.
+    // Camera buffer holds the projection/view and position.
+    // Direction buffer holds position data from some light types that need to be calculated
+    // into 'direction' vectors (in vertex shader) for the light calculations (in fragment).
+    // Lights contain the colors etc.
+    // Model contains the object transform, and material the color stuff.
     app.uCamera = shaders.CAMERA_UNIFORM_BLOCK.create(gl);
     app.uDirection = null;
+    app.uLights = null;
     app.uModel = null;
     app.uMaterial = null;
-    app.uLights = null;
+
+    // Biding the buffers to the appropriate binding points, can only bind the camera
+    // at this point, rest will be bound after they are created.
     app.gl.bindBufferBase(app.gl.UNIFORM_BUFFER, 0, app.uCamera.__gpu);
-    // Programs
+
+    // The two programs we will be using to render, meshProgram for rendering 3d objects in
+    // the scene, and particleProgram for the particles
     app.meshProgram = utils.createGenericProgram(app.gl, {
       vert: () => {
         const source = shaders.OBJECT_VERTEX_SHADER(proxy.state);
@@ -84,7 +115,11 @@ export default ({ options, proxy }) => {
     });
   }, [app, canvas, proxy]);
 
-  useEffect(() => {
+  // This is run everytime the 'objects' portion of the GUI changes.
+  // We will need to recalculate the model and material buffer, aswell as
+  // the meshProgram, it is just disposed here, since it will be automaticly
+  // re-compiled when used.
+  useEffect(function OnObjectCountChanges() {
     if (app.uModel) {
       app.uModel.dispose(app.gl);
       app.uMaterial.dispose(app.gl);
@@ -96,19 +131,40 @@ export default ({ options, proxy }) => {
     app.gl.bindBufferBase(app.gl.UNIFORM_BUFFER, 2, app.uMaterial.__gpu);
   }, [app, proxy, options.objects.length]);
 
+  // This is run everytime the 'lights' changes (in size, and one of the light type
+  // is changed). We will need to recalculate the light and direction buffers, aswell
+  // as both of the programs.
   utils.useUpdatePrograms(options.lights, initial => {
-    if (!initial) {
+    if (app.uLights) {
       app.uLights.dispose(app.gl);
       app.meshProgram.dispose();
       app.particleProgram.dispose();
     }
-    app.particles = particles.createParticleSystem(app.gl, options);
     app.uDirection = shaders.LIGHT_DIRECTIONS_UNIFORM.create(app.gl, options);
     app.uLights = shaders.LIGHT_COLORS_UNIFORM_BLOCK.create(app.gl, options);
     app.gl.bindBufferBase(app.gl.UNIFORM_BUFFER, 3, app.uLights.__gpu);
   });
 
+  // Creating/updating the particle 'system', it only depends on the 'count' option
+  useEffect(function OnParticleCountChanges() {
+    if (app.particles)
+      app.particles.dispose();
+    app.particles = particles.createParticleSystem(app.gl, proxy.state);
+  }, [app, proxy, options.particle.count]);
+
+  // Recalculate the particleProgram anytime any particle-options changes, since
+  // the vertex/fragment shader source 'hard-codes' the variables in, rather
+  // than sending in the data as uniform data, yai, 0.01% performance boost =)
+  useEffect(function  OnParticleOptionsChanges() {
+    if (app.particleProgram)
+      app.particleProgram.dispose();
+    app.particleProgram.use();
+  }, [app, proxy, options.particle]);
+
+  // Anytime the object options changes, we update the unform buffer objects for
+  // model and material, and upload the data to the GPU
   useEffect(() => {
+    // Update the buffers
     options.objects.forEach((object, i) => {
       mat4.identity(app.uModel.transform[i]())
       mat4.translate(app.uModel.transform[i](), app.uModel.transform[i](), object.position);
@@ -120,13 +176,17 @@ export default ({ options, proxy }) => {
       app.uMaterial.specular[i](object.specular);
       app.uMaterial.highlight[i](object.highlight);
     });
+    // Send data to the GPU
     app.gl.bindBuffer(app.gl.UNIFORM_BUFFER, app.uModel.__gpu);
     app.gl.bufferSubData(app.gl.UNIFORM_BUFFER, 0, app.uModel.__cpu);
     app.gl.bindBuffer(app.gl.UNIFORM_BUFFER, app.uMaterial.__gpu);
     app.gl.bufferSubData(app.gl.UNIFORM_BUFFER, 0, app.uMaterial.__cpu);
   }, [app, proxy, options.objects]);
 
+  // Anytime the light options changes, we update the uniform buffer objects for
+  // directions and light, and upload the data to the GPU
   useEffect(() => {
+    // Update the buffers, and yai for THREEJS! =D
     const shear = new Matrix4();
     shaders.loopLights(options.lights, ({ type, value }, i, j) => {
       app.uLights[type][i].diffuse(value.diffuse);
@@ -135,13 +195,12 @@ export default ({ options, proxy }) => {
         const transform = app.uLights.box[i].transform();
         mat4.identity(transform);
         mat4.translate(transform, transform, value.position);
-        mat4.rotateY(transform, transform, value.rotation[1]);
-        mat4.rotateX(transform, transform, value.rotation[0]);
-        mat4.rotateZ(transform, transform, value.rotation[2]);
+        mat4.rotateY(transform, transform, utils.rad(value.rotation[1]));
+        mat4.rotateX(transform, transform, utils.rad(value.rotation[0]));
+        mat4.rotateZ(transform, transform, utils.rad(value.rotation[2]));
         shear.makeShear(...value.shear);
         mat4.multiply(transform, transform, shear.elements);
         mat4.scale(transform, transform, value.scale);
-        // app.uLights.box[i].direction([0, 0, -1]);
         const direction = app.uLights.box[i].direction();
         vec3.transformMat4(direction, [0, 0, -1], transform);
         vec3.normalize(direction, direction);
@@ -154,8 +213,11 @@ export default ({ options, proxy }) => {
       } else if (type === 'spot') {
         utils.copy(app.uDirection, value.position, j * 3);
         app.uLights.spot[i].direction(value.direction);
+        app.uLights.spot[i].attenuation(value.attenuation);
+        app.uLights.spot[i].angle(value.angle);
       }
     });
+    // Upload the data to the GPU
     app.gl.bindBuffer(app.gl.UNIFORM_BUFFER, app.uLights.__gpu);
     app.gl.bufferSubData(app.gl.UNIFORM_BUFFER, 0, app.uLights.__cpu);
     app.meshProgram.use();
@@ -164,43 +226,42 @@ export default ({ options, proxy }) => {
     app.gl.uniform3fv(app.particleProgram.uDirections, app.uDirection);
   }, [app, proxy, options.lights]);
 
-  useEffect(() => {
-    if (app.particles)
-      app.particles.dispose();
-    app.particles = particles.createParticleSystem(app.gl, proxy.state);
-  }, [app, proxy, options.particle.count]);
-
-  useEffect(() => {
-    if (app.particleProgram)
-      app.particleProgram.dispose();
-    app.particleProgram.use();
-  }, [app, proxy, options.particle]);
-
+  // The render-loop
   utils.useDeltaAnimationFrame(60, dt => {
     const { gl } = app;
-    mouse(dt);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+    updateFps();
+
+    // Update the camera control etc
+    updateMouse(dt);
     gl.bindBuffer(gl.UNIFORM_BUFFER, app.uCamera.__gpu);
     gl.bufferSubData(gl.UNIFORM_BUFFER, 0, app.uCamera.__cpu);
 
+    // Render objects in the scene
     app.meshProgram.use();
     for (let i = 0; i < app.uModel.transform.length && i < proxy.state.objects.length; i++) {
       gl.uniform1i(app.meshProgram.uModID, i);
       gl.uniform1i(app.meshProgram.uMatID, i);
       switch (proxy.state.objects[i].mesh) {
+        case 'inverted cube':
+          app.boxMeshInverted.bind();
+          gl.frontFace(gl.CW);
+          gl.drawElements(gl.TRIANGLES, app.boxMeshInverted.count, gl.UNSIGNED_SHORT, 0);
+          gl.frontFace(gl.CCW);
+          break;
         case 'suzanne':
           app.suzanneMesh.bind();
           gl.drawElements(gl.TRIANGLES, app.suzanneMesh.count, gl.UNSIGNED_SHORT, 0);
           break;
         default:
-          app.boxMesh.bind();
-          gl.frontFace(gl.CW);
-          gl.drawElements(gl.TRIANGLES, app.boxMesh.count, gl.UNSIGNED_SHORT, 0);
-          gl.frontFace(gl.CCW);
+          app.boxMeshNormal.bind();
+          gl.drawElements(gl.TRIANGLES, app.boxMeshNormal.count, gl.UNSIGNED_SHORT, 0);
           break;
       }
     }
 
+    // Render the particles
     if (proxy.state.particle.enabled) {
       app.particleProgram.use();
       gl.uniform1f(app.particleProgram.uDelta, dt / 60);
@@ -222,6 +283,9 @@ export default ({ options, proxy }) => {
   return (
     <Fragment>
       <canvas ref={canvas} />;
+      <div style={{ position: 'fixed', bottom: 8, right: 8, color: 'white' }}>
+        {fps}
+      </div>
       <Source sources={[
         { name: 'MeshVert', source: meshVertSource },
         { name: 'MeshFrag', source: meshFragSource },
@@ -231,70 +295,3 @@ export default ({ options, proxy }) => {
     </Fragment>
   );
 };
-
-    /*
-    app.meshProgram = utils.createGenericProgram(gl, {
-      vert: shaders.OBJECT_VERTEX_SHADER(proxy.state),
-      frag: shaders.OBJECT_FRAGMENT_SHADER(proxy.state),
-      after(program) {
-        gl.uniformBlockBinding(program, gl.getUniformBlockIndex(program, 'Camera'), 0);
-        gl.uniformBlockBinding(program, gl.getUniformBlockIndex(program, 'Material'), 1);
-        gl.uniformBlockBinding(program, gl.getUniformBlockIndex(program, 'Lights'), 2);
-        this.uDirections = gl.getUniformLocation(program, 'uDirections');
-        this.uInstance = gl.getUniformLocation(program, 'uInstance');
-      },
-    });
-    app.particleProgram.dispose();
-    // Create the Uniform Buffer Objects that holds the light data
-    app.uDirection = shaders.UNIFORM_BLOCK_LIGHT_DIRECTIONS.create(app.gl, proxy.state);
-    app.uLightColor = shaders.UNIFORM_BLOCK_LIGHT_COLORS.create(app.gl, proxy.state);
-    // Create the program that will render objects, using the light data
-    app.meshProgram = createObjectProgram(app.gl, proxy);
-    app.particleProgram = createParticleProgram(app.gl, proxy);
-
-    app.colorsNeedUpdate = true;
-    */
-
-  /*
-  useEffect(function UpdateParticles() {
-    if (!app.initialized) return;
-    app.particleProgram.dispose();
-    app.particleProgram = createParticleProgram(app.gl, proxy);
-  }, [app, proxy, options.particle, options.points.length, options.boxes.length]);
-
-  useEffect(function UpdateParticles() {
-    if (!app.initialized) return;
-    app.objectParticle.dispose();
-    app.objectParticle = particles.createParticleSystem(app.gl, proxy.state.particle);
-  }, [app, proxy, options.particle.count]);
-  */
-
-  /*
-  useEffect(function UpdateBoxes() {
-    const shear = new Matrix4();
-    options.boxes.forEach((box, index) => {
-      const buf = app.uLightColor.boxes[index];
-      buf.diffuse(box.diffuse);
-      buf.specular(box.specular);
-      mat4.identity(buf.transform());
-      mat4.translate(buf.transform(), buf.transform(), box.position);
-      shear.makeShear(...box.shear);
-      mat4.multiply(buf.transform(), buf.transform(), shear.elements);
-      mat4.rotateY(buf.transform(), buf.transform(), box.rotation[1]);
-      mat4.rotateX(buf.transform(), buf.transform(), box.rotation[0]);
-      mat4.rotateZ(buf.transform(), buf.transform(), box.rotation[2]);
-      mat4.scale(buf.transform(), buf.transform(), box.scale);
-      vec3.transformMat4(buf.direction(), [0, 0, -1], buf.transform());
-      mat4.invert(buf.transform(), buf.transform());
-    });
-    app.colorsNeedUpdate = true;
-  }, [app, proxy, options.boxes, options.points.length, options.boxes.length]);
-
-  useEffect(() => {
-    app.initialized = true;
-  }, [app]);
-  */
-
-/*
-
-*/

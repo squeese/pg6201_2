@@ -22,19 +22,20 @@ const CameraOptions = () => (
       <Options.InputFloat name="offset" value={5} />
     </Options.ResetRow>
     <Options.InputVector header="Rotation" name="rotation" value={[0, 0, 0, 1]} />
+    <Options.InputBool header="Roll enabled" name="roll" value={true} />
   </Options.Section>
 );
 
 const ParticleOptions = () => (
   <Options.Section header="Particles" name="particle">
-    <Options.InputInt header="Count" name="count" value={Math.pow(2, 17)} max={Math.pow(2, 22)} />
+    <Options.InputInt header="Count" name="count" value={Math.pow(2, 16)} max={Math.pow(2, 22)} />
     <Options.ResetRow label="Duration" misc="min/max">
       <Options.InputFloat name="minDuration" value={1} min={0} />
       <Options.InputFloat name="maxDuration" value={2} min={1} />
     </Options.ResetRow>
     <Options.ResetRow label="Size" misc="particle/room">
       <Options.InputFloat name="size" value={1} min={0.1} max={10} />
-      <Options.InputFloat name="roomSize" value={3} min={1} />
+      <Options.InputFloat name="roomSize" value={1} />
     </Options.ResetRow>
     <Options.ResetRow label="Alpha" misc="lit/not">
       <Options.InputFloat name="insideAlpha" value={0.5} min={0} max={1} step={0.01} />
@@ -50,7 +51,7 @@ const ParticleOptions = () => (
 
 const ObjectOptions = () => (
   <Options.InputList header="Objects" name="objects" min={0} max={10}>
-    <Options.InputDropdown header="Texture" name="mesh" value={['cube', 'suzanne']} />
+    <Options.InputDropdown header="Mesh" name="mesh" value={['cube', 'inverted cube', 'suzanne']} />
     <Options.InputDropdown header="Texture" name="texture" value={['none', 'houseInterior']} />
     <Options.InputVector header="Diffuse" name="diffuse" value={[0.7, 0.7, 0.7]} min={0} max={1} step={0.01} />
     <Options.InputVector header="Specular" name="specular" value={[0.7, 0.7, 0.7]} min={0} max={1} step={0.01} />
@@ -95,6 +96,8 @@ const LightOptions = () => (
           <Options.InputVector header="Specular" name="specular" value={[0.7, 0.7, 0.7]} min={0} max={1} step={0.01} />
           <Options.InputVector header="Position" name="position" value={[0.0, 0.0, 0.0]} step={0.1} />
           <Options.InputVector header="Direction" name="direction" value={[0.0, 1.0, 0.0]} step={0.1} validate={normalizeVector} />
+          <Options.InputFloat header="Attenuation" name="attenuation" value={1} min={0} step={0.1} />
+          <Options.InputFloat header="Angle" name="angle" value={1} min={0} step={0.1} />
         </React.Fragment>
       )},
     ]} />

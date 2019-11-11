@@ -1,4 +1,4 @@
-import { useEffect, useRef, useContext, useCallback } from 'react';
+import React, { useMemo, useState, useEffect, useRef, useContext, useCallback } from 'react';
 import { vec3, quat, mat4 } from 'gl-matrix';
 import { Context } from './Options';
 
@@ -62,7 +62,11 @@ export const useMouseCamera = (app, canvas) => {
       let dx = 0, dy = 0;
       const mouseMove = e => {
         if (dx === 0) window.requestAnimationFrame(() => {
-          quat.fromEuler(change, dy / 4 * pitch, dx / 4, dy / 4 * roll);
+          if (proxy.state.camera.roll) {
+            quat.fromEuler(change, dy / 4 * pitch, dx / 4, dy / 4 * roll);
+          } else {
+            quat.fromEuler(change, dy / 4, dx / 4, 0);
+          }
           update(({ camera }) => quat.multiply(camera.rotation, camera.rotation.read(), change));
           dx = 0;
           dy = 0;
@@ -96,7 +100,7 @@ export const useMouseCamera = (app, canvas) => {
       node.removeEventListener("mousedown", onMouseDownHandler);
       node.removeEventListener("wheel", onScrollWheelHandler);
     };
-  }, [canvas, update]);
+  }, [canvas, update, proxy]);
 
   return useCallback(dt => {
     ref.offset = lerp(ref.offset, proxy.state.camera.offset, 0.05 * dt);
@@ -223,6 +227,27 @@ export const createGenericMesh = (gl, { vertices, indices, normals }) => {
   return mesh;
 };
 
+export const useFps = cb => {
+  const ref = useRef(cb);
+  return useMemo(() => {
+    let previous;
+    let count = 0;
+    let timer = 1000;
+    return () => {
+      const current = performance.now();
+      if (previous) {
+        timer -= current - previous;
+        if (timer <= 0) {
+          ref.current(count);
+          count = 0;
+          timer = 1000;
+        } else count++;
+      }
+      previous = current;
+    };
+  }, [ref]);
+};
+
 export const useDeltaAnimationFrame = (fps, fn) => {
   const ref = useRef(fn);
   useEffect(() => {
@@ -244,7 +269,75 @@ export const useDeltaAnimationFrame = (fps, fn) => {
   }, [fps, ref]);
 };
 
-export const useFixedAnimationFrame = (fps, update, render) => {};
+export const useSpring = (target, config = {}) => {
+  const ref = useRef();
+  ref.current = ref.current || new Spring(target, config);
+  ref.current.set(target);
+  return ref.current;
+};
+
+export function Spring(target, config) {
+  this.target = target || 0;
+  this.current = config.hasOwnProperty('current') ? config.current : (target || 0);
+  this.velocity = config.velocity || 0;
+  this.stiffness = config.stiffness || 0.04;
+  this.damping = config.damping || 0.875;
+  this.precision = config.precision || 0.001;
+}
+
+Spring.prototype = {
+  set(target) {
+    this.target = target;
+  },
+  step(elapsed) {
+    // elapsed...
+    this.velocity = (this.velocity + (this.target - this.current) * this.stiffness) * this.damping;
+    this.current += this.velocity;
+    return this.current;
+  },
+  idle() {
+    if (Math.abs(this.velocity) < this.precision && Math.abs(this.current - this.target) < this.precision) {
+      this.current = this.target;
+      this.velocity = 0;
+      return true;
+    }
+    return false;
+  }
+};
+
+export const AnimateSpring = ({ springs, onIdle, children }) => {
+  const keys = Object.keys(springs);
+  const init = keys.reduce((obj, key) => ({...obj, [key]: springs[key].current}), {});
+  return <RequestAnimationFrameDelegate
+    springs={springs}
+    keys={keys}
+    init={init}
+    onIdle={onIdle}
+    children={children}
+  />;
+};
+
+const RequestAnimationFrameDelegate = ({ keys, init, springs, children, onIdle }) => {
+  const [ state, setState ] = useState(init);
+  const request = useRef();
+  const timestamp = useRef(null);
+  window.cancelAnimationFrame(request.current);
+  if (keys.length) request.current = window.requestAnimationFrame(function step(ts) {
+    const next = {...state};
+    for (let i = keys.length - 1; i >= 0; i--) {
+      next[keys[i]] = springs[keys[i]].step(timestamp.current && (ts - timestamp.current));
+      if (springs[keys[i]].idle()) {
+        next[keys[i]] = springs[keys[i]].target;
+        keys.pop();
+      }
+    }
+    setState(next);
+    timestamp.current = keys.length ? ts : null;
+  });
+  else if (onIdle) onIdle();
+  return children(state);
+};
+
 
 
 export const createFlatCubeMesh = (size = 1, CW = false) => ({

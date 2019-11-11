@@ -1,0 +1,266 @@
+{
+  "camera": {
+    "fov": 45,
+    "offset": 10.799999999999985,
+    "rotation": [
+      -0.08423242556634891,
+      -0.331017133429519,
+      -0.018751312633270886,
+      0.9396686366618666
+    ],
+    "__minimized": false,
+    "roll": true
+  },
+  "particle": {
+    "count": 131072,
+    "minDuration": 1,
+    "maxDuration": 2,
+    "size": 1,
+    "roomSize": 3,
+    "insideAlpha": 0.5,
+    "outsideAlpha": 0.01,
+    "speed": 0.001,
+    "blend": true,
+    "depth": true,
+    "enabled": true,
+    "diffuse": [
+      1,
+      1,
+      1
+    ],
+    "__minimized": false
+  },
+  "objects": [
+    {
+      "mesh": "inverted cube",
+      "texture": "none",
+      "diffuse": [
+        0.7,
+        0.7,
+        0.7
+      ],
+      "specular": [
+        1,
+        1,
+        1
+      ],
+      "highlight": 11.625000000000002,
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        3,
+        3,
+        3
+      ]
+    },
+    {
+      "mesh": "suzanne",
+      "texture": "none",
+      "diffuse": [
+        0.7,
+        0.7,
+        0.7
+      ],
+      "specular": [
+        0.7,
+        0.7,
+        0.7
+      ],
+      "highlight": 32,
+      "position": [
+        -5.551115123125783e-17,
+        0.19000000000000022,
+        0.48
+      ],
+      "rotation": [
+        0,
+        -0.5500000000000002,
+        0
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ]
+    }
+  ],
+  "lights": [
+    {
+      "type": "spot",
+      "value": {
+        "diffuse": [
+          1,
+          1,
+          1
+        ],
+        "specular": [
+          1,
+          1,
+          1
+        ],
+        "position": [
+          -3.0000000000000027,
+          0,
+          0
+        ],
+        "direction": [
+          -1,
+          2.2074025253708982e-18,
+          0
+        ],
+        "attenuation": 1.1,
+        "angle": 0.3299999999999996
+      }
+    },
+    {
+      "type": "box",
+      "value": {
+        "diffuse": [
+          0.5,
+          0.6,
+          0.7
+        ],
+        "specular": [
+          0.7,
+          0.7,
+          0.7
+        ],
+        "position": [
+          -3,
+          1,
+          0.6
+        ],
+        "rotation": [
+          0,
+          90,
+          0
+        ],
+        "scale": [
+          0.5,
+          0.5,
+          7
+        ],
+        "shear": [
+          0,
+          0,
+          -0.2
+        ]
+      }
+    },
+    {
+      "type": "box",
+      "value": {
+        "diffuse": [
+          0.5,
+          0.6,
+          0.7
+        ],
+        "specular": [
+          0.7,
+          0.7,
+          0.7
+        ],
+        "position": [
+          -3,
+          1,
+          -0.6
+        ],
+        "rotation": [
+          0,
+          90,
+          0
+        ],
+        "scale": [
+          0.5,
+          0.5,
+          7
+        ],
+        "shear": [
+          0,
+          0,
+          -0.2
+        ]
+      }
+    },
+    {
+      "type": "box",
+      "value": {
+        "diffuse": [
+          0.5,
+          0.6,
+          0.7
+        ],
+        "specular": [
+          0.7,
+          0.7,
+          0.7
+        ],
+        "position": [
+          -3,
+          -0.2,
+          0.6
+        ],
+        "rotation": [
+          0,
+          90,
+          0
+        ],
+        "scale": [
+          0.5,
+          0.5,
+          7
+        ],
+        "shear": [
+          0,
+          0,
+          -0.2
+        ]
+      }
+    },
+    {
+      "type": "box",
+      "value": {
+        "diffuse": [
+          0.5,
+          0.6,
+          0.7
+        ],
+        "specular": [
+          0.7,
+          0.7,
+          0.7
+        ],
+        "position": [
+          -3,
+          -0.2,
+          -0.6
+        ],
+        "rotation": [
+          0,
+          90,
+          0
+        ],
+        "scale": [
+          0.5,
+          0.5,
+          7
+        ],
+        "shear": [
+          0,
+          0,
+          -0.2
+        ]
+      }
+    }
+  ],
+  "__objects__minimized": false,
+  "__lights__minimized": false
+}
