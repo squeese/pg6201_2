@@ -19,20 +19,24 @@ export default ({ sources }) => {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [open]);
   return (
-    <Container>
-      <span>Shader sources</span>
-      {sources.map(({ name }, index) => (
-        <SelectButton key={index} onClick={click(index)} selected={open && index === selected}>
-          {name}
-        </SelectButton>
-      ))}
-      <Wrapper style={{ display: open ? 'block' : 'none' }}>
-        <CloseButton onClick={close}>X</CloseButton>
-        <SyntaxHighlighter language="glsl" style={tomorrowNight}>
-          {sources[selected].source}
-        </SyntaxHighlighter>
-      </Wrapper>
-    </Container>
+    <React.Fragment>
+      <Container>
+        <span>Shader sources</span>
+        {sources.map(({ name }, index) => (
+          <SelectButton key={index} onClick={click(index)} selected={open && index === selected}>
+            {name}
+          </SelectButton>
+        ))}
+      </Container>
+      <Popup style={{ display: open ? 'block' : 'none' }}>
+        <Wrapper>
+          <CloseButton onClick={close}>X</CloseButton>
+          <SyntaxHighlighter language="glsl" style={tomorrowNight}>
+            {sources[selected].source}
+          </SyntaxHighlighter>
+        </Wrapper>
+      </Popup>
+    </React.Fragment>
   )
 };
 
@@ -41,8 +45,6 @@ const Container = styled.div`
   top: 0px;
   right: 2px;
   max-height: 100vh;
-  overflow: scroll;
-  padding: 0;
   & > span {
     font-size: 0.6rem;
     color: white;
@@ -68,11 +70,21 @@ const SelectButton = styled.button`
   }
 `;
 
-const Wrapper = styled.div`
+const Popup = styled.div`
+  z-index: 1000;
+  position: fixed;
+  top: 16px;
+  right: 0;
+  left: 256px;
+  bottom: 0;
   font-size: 0.8rem;
+  overflow: scroll;
+`;
+
+const Wrapper = styled.div`
   position: relative;
-  text-align: left;
-  margin-top: -4px;
+  width: 100%;
+  height: 100%;
 `;
 
 const CloseButton = styled.button`
