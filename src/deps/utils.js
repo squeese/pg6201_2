@@ -108,25 +108,6 @@ export const useMouseCamera = (app, canvas) => {
   }, [app, ref, proxy]);
 };
 
-/* eslint-disable react-hooks/exhaustive-deps */
-export const useUpdatePrograms = (options, cb) => {
-  const previous = useRef();
-  useEffect(() => {
-    if (!previous.current) cb(true);
-    else if (previous.current.options.length !== options.length) cb(false);
-    else {
-      for (let i = 0; i < options.length; i++) {
-        if (options[i].type !== previous.current.options[i].type) {
-          cb(false);
-          break;
-        }
-      }
-    }
-    previous.current = { options };
-  }, [options]);
-};
-/* eslint-enable react-hooks/exhaustive-deps */
-
 export const loadShader = (gl, type, source) => {
   const shader = gl.createShader(type);
   gl.shaderSource(shader, source);
@@ -137,17 +118,6 @@ export const loadShader = (gl, type, source) => {
     throw error;
   }
   return shader;
-};
-
-export const createProgram = (gl, vs, fs, link = true) => {
-  const program = gl.createProgram();
-  gl.attachShader(program, loadShader(gl, gl.VERTEX_SHADER, vs));
-  gl.attachShader(program, loadShader(gl, gl.FRAGMENT_SHADER, fs));
-  if (link) {
-    if (typeof link === 'function') link(program);
-    else linkProgram(gl, program);
-  }
-  return program;
 };
 
 export const linkProgram = (gl, program) => {
@@ -327,8 +297,6 @@ const RequestAnimationFrameDelegate = ({ keys, init, springs, children, onIdle }
   else if (onIdle) onIdle();
   return children(state);
 };
-
-
 
 export const createFlatCubeMesh = (size = 1, CW = false) => ({
   vertices: new Float32Array([

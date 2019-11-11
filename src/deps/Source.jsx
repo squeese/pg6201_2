@@ -3,7 +3,6 @@ import styled from 'styled-components';
 import SyntaxHighlighter from 'react-syntax-highlighter';
 import { tomorrowNight } from 'react-syntax-highlighter/dist/esm/styles/hljs';
 
-
 export default ({ sources }) => {
   const [ open, setOpen ] = useState(false);
   const [ selected, setIndex ] = useState(0);
