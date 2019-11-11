@@ -12,12 +12,13 @@
     "__minimized": true
   },
   "particle": {
-    "count": 200000,
+    "count": 500000,
     "minDuration": 1,
     "maxDuration": 2,
     "size": 1,
     "roomSize": 4,
     "speed": 0.001,
+    "scale": false,
     "blend": true,
     "depth": true,
     "enabled": true,
@@ -156,7 +157,7 @@
           0
         ],
         "scale": [
-          1,
+          0.5,
           1,
           5
         ],

@@ -18,7 +18,7 @@ export default () => (
 const CameraOptions = () => (
   <Options.Section header="Camera" name="camera">
     <Options.ResetRow label="FOV / Offset">
-      <Options.InputFloat name="fov" value={90} min={40} max={120} />
+      <Options.InputFloat name="fov" value={70} min={40} />
       <Options.InputFloat name="offset" value={5} />
     </Options.ResetRow>
     <Options.InputVector header="Rotation" name="rotation" value={[0, 0, 0, 1]} />
@@ -33,11 +33,12 @@ const ParticleOptions = () => (
       <Options.InputFloat name="minDuration" value={1} min={0} />
       <Options.InputFloat name="maxDuration" value={2} min={1} />
     </Options.ResetRow>
+    <Options.InputFloat header="Speed" name="speed" value={0.001} decimals={1000} step={0.01} />
     <Options.ResetRow label="Size" misc="particle/room">
       <Options.InputFloat name="size" value={1} min={0.1} max={10} />
       <Options.InputFloat name="roomSize" value={1} />
     </Options.ResetRow>
-    <Options.InputFloat header="Speed" name="speed" value={0.001} />
+    <Options.InputBool header="Scale" misc="on distance" name="scale" value={true} />
     <Options.InputBool header="Blend" name="blend" value={true} />
     <Options.InputBool header="Depth Test" name="depth" value={false} />
     <Options.InputBool header="Enabled" name="enabled" value={true} />

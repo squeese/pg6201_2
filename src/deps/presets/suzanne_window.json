@@ -13,13 +13,12 @@
   },
   "particle": {
     "count": 250000,
-    "minDuration": 1,
+    "minDuration": 0.5,
     "maxDuration": 2,
-    "size": 1.3699999999999997,
+    "size": 8,
     "roomSize": 3,
-    "insideAlpha": 0.5,
-    "outsideAlpha": 0.01,
-    "speed": 0.001,
+    "speed": 0.01,
+    "scale": true,
     "blend": true,
     "depth": true,
     "enabled": true,
@@ -29,7 +28,7 @@
       1
     ],
     "__minimized": false,
-    "alpha": 0.3909999999999999
+    "alpha": 0.45
   },
   "objects": [
     {

@@ -4,9 +4,8 @@ import styled from 'styled-components';
 
 export const Context = createContext({});
 const { POSITIVE_INFINITY:MAX, NEGATIVE_INFINITY:MIN } = Number;
-const floatFormat = v => (v * 100 | 0) / 100;
 const noop = () => {};
-
+const floatFormat = (v, f = 100) => (v * f | 0) / f;
 export const Provider = ({ children, preset = null }) => {
   const [ state, setState ] = useState({});
   const [ ready, setReady ] = useState(null);
@@ -63,7 +62,7 @@ export const Event = ({ onReady = noop, onChange = noop }) => {
   return null;
 };
 
-export const Float = ({ name, value, min = MIN, max = MAX, step = 0.1, children, ...props }) => {
+export const Float = ({ name, value, min = MIN, max = MAX, step = 0.1, decimals = 100, children, ...props }) => {
   const [ pending, setPending ] = useState(null);
   const { state, update } = useContext(Context);
   const ref = useRef();
@@ -107,7 +106,7 @@ export const Float = ({ name, value, min = MIN, max = MAX, step = 0.1, children,
   }, [ref, update, max, min, name, pending, step]);
   const invalid = pending !== null;
   return children({
-    value: invalid ? pending : floatFormat(state.hasOwnProperty(name) ? state[name] : value),
+    value: invalid ? pending : floatFormat(state.hasOwnProperty(name) ? state[name] : value, decimals),
     invalid,
     ref,
     onChange,
@@ -466,9 +465,9 @@ export const InputInt = ({ header = null, ref, reset = true, name, value, ...pro
   </Fragment>
 );
 
-export const InputBool = ({ header = null, reset = true, name, value, ...props }) => (
+export const InputBool = ({ header = null, misc = null, reset = true, name, value, ...props }) => (
   <Fragment>
-    {header && <Label>{header}{!reset ? null : <Reset name={name} value={value} />}</Label>}
+    {header && <Label>{header}{!reset ? null : <Reset name={name} value={value} />}{misc && <Mini>{misc}</Mini>}</Label>}
     <Row>
       <Bool name={name} value={value} {...props}>
         {props => (

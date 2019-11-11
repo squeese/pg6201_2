@@ -314,7 +314,11 @@ void main() {
     vDuration = aDuration;
     vLapsed = aLapsed + uDeltaTime;
   }
-  gl_PointSize = ${particle.size.floatString()};
+  ${particle.scale ? `
+  float VL = length(uCamera.position - aPosition);
+  gl_PointSize = ${particle.size.floatString()} / VL;
+  `:`
+  gl_PointSize = ${particle.size.floatString()};`}
   gl_Position = uCamera.projection * uCamera.view * vec4(vPosition, 1.0);
   vec3 color = vec3(0.0);
   ${loopLights(options.lights, (light, i, j) => {

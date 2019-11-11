@@ -6,7 +6,7 @@ const PRESETS = {
   suzannewindow: {
     json: require('./presets/suzanne_window.json'),
     button: 'Suzanne in Window',
-    description: `Scene contains four LightBoxes and one PointLight`,
+    description: `Scene contains four LightBoxes and one PointLight, and there is also applied shear transform on all the LightBoxes`,
   },
   suzannespotlight: {
     json: require('./presets/suzanne_spotlight.json'),

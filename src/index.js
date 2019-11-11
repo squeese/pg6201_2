@@ -5,7 +5,6 @@ import * as Options from './deps/Options';
 import Presets from './deps/Presets';
 import GUI from './GUI';
 import App from './App';
-// import App from './Test';
 
 const GlobalStyle = createGlobalStyle`
   body {
@@ -27,24 +26,6 @@ const GlobalStyle = createGlobalStyle`
   }
 `;
 
-const SaveButton = () => {
-  const { state } = React.useContext(Options.Context);
-  const ref = React.useRef();
-  const save = () => {
-    const input = ref.current;
-    input.value = JSON.stringify(state);
-    input.select();
-    document.execCommand('copy');
-    window.sessionStorage.setItem("preset", JSON.stringify(state));
-  };
-  return (
-    <div style={{ position: 'fixed', bottom: 32, right: 0 }}>
-      <input ref={ref} />
-      <button onClick={save}>save</button>
-    </div>
-  );
-};
-
 render((
   <Presets>
     <Options.Provider>
@@ -53,7 +34,6 @@ render((
       <Options.Context.Consumer>
         {({ ready, state, proxy }) => ready && <App options={state} proxy={proxy} />}
       </Options.Context.Consumer>
-      <SaveButton />
     </Options.Provider>
   </Presets>),
   document.getElementById('root'));
