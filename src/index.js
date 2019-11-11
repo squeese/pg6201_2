@@ -58,6 +58,7 @@ const SaveButton = () => {
     input.value = JSON.stringify(state);
     input.select();
     document.execCommand('copy');
+    window.sessionStorage.setItem("preset", JSON.stringify(state));
   };
   return (
     <div style={{ position: 'fixed', bottom: 32, right: 0 }}>

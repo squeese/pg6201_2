@@ -9,6 +9,10 @@ const presets = {
 
 const loadConfig = location => {
   const name = location.search.slice(1);
+  if (name === 'memory') {
+    const preset = window.sessionStorage.getItem("preset");
+    return JSON.parse(preset);
+  }
   return presets.hasOwnProperty(name) ? presets[name] : null;
 };
 
@@ -27,6 +31,7 @@ export default ({ children }) => {
         <SelectButton onClick={setConfig(null)}>Empty</SelectButton>
         <SelectButton onClick={setConfig('preset1')}>Room with four beams</SelectButton>
         <SelectButton onClick={setConfig('preset2')}>preset2</SelectButton>
+        <SelectButton onClick={setConfig('memory')}>memory</SelectButton>
       </Container>
       {cloneElement(children, { preset })}
     </Fragment>

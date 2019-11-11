@@ -16,11 +16,6 @@ Number.prototype.floatString = function(v, b) {
   return this % 1 === 0 ? `${this}.0` : this;
 };
 
-/* eslint-disable-next-line no-extend-native */
-Array.prototype.exclude = function(arr, fn) {
-  return arr.filter(v => !fn(v));
-};
-
 export const useFullscreenCanvas = (app, canvas, proxy) => {
   useEffect(function Initialize() {
     canvas.current.width = window.innerWidth;
@@ -129,11 +124,6 @@ export const useUpdatePrograms = (options, cb) => {
     }
     previous.current = { options };
   }, [options]);
-};
-
-export const useChange = (fn, changes) => {
-  const ctx = useRef({}).current;
-  useEffect(() => fn.apply(ctx), changes);
 };
 /* eslint-enable react-hooks/exhaustive-deps */
 

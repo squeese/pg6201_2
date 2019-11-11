@@ -1,13 +1,11 @@
 import React, { Fragment, useRef, useEffect, useState } from 'react';
-import { mat4, vec3 } from 'gl-matrix';
+import { mat3, mat4, vec3 } from 'gl-matrix';
 import { Matrix4 } from 'three';
 import suzanne from './deps/models/suzanneHighpoly.json';
 import Source from './deps/Source';
 import * as utils from './deps/utils';
 import * as shaders from './Shaders';
 import * as particles from './Particles';
-
-const prev = {};
 
 export default ({ options, proxy }) => {
   const app = useRef({}).current;
@@ -23,14 +21,6 @@ export default ({ options, proxy }) => {
 
   // Initializtion of the 'application', this is only run once
   useEffect(function InitializeApplication() {
-    console.log('initialization');
-
-    console.log(prev.app === app, prev.can === canvas, prev.prox === proxy);
-
-    prev.app = app;
-    prev.can = canvas;
-    prev.prox = proxy;
-
     const { gl } = app;
     gl.clearColor(0.3, 0.4, 0.6, 1.0);
     gl.enable(gl.CULL_FACE);
@@ -111,6 +101,7 @@ export default ({ options, proxy }) => {
         this.uDelta = gl.getUniformLocation(program, 'uDeltaTime');
         this.uRandom = gl.getUniformLocation(program, 'uRandom');
         this.uDiffuse = gl.getUniformLocation(program, 'uDiffuse');
+        this.uAlpha = gl.getUniformLocation(program, 'uAlpha');
       },
     });
   }, [app, canvas, proxy]);
@@ -134,16 +125,18 @@ export default ({ options, proxy }) => {
   // This is run everytime the 'lights' changes (in size, and one of the light type
   // is changed). We will need to recalculate the light and direction buffers, aswell
   // as both of the programs.
-  utils.useUpdatePrograms(options.lights, initial => {
+  const prev = useRef();
+  useEffect(() => {
+    if (!hasLightsChanged(prev, options.lights)) return;
     if (app.uLights) {
       app.uLights.dispose(app.gl);
       app.meshProgram.dispose();
       app.particleProgram.dispose();
     }
-    app.uDirection = shaders.LIGHT_DIRECTIONS_UNIFORM.create(app.gl, options);
-    app.uLights = shaders.LIGHT_COLORS_UNIFORM_BLOCK.create(app.gl, options);
+    app.uDirection = shaders.LIGHT_DIRECTIONS_UNIFORM.create(app.gl, proxy.state);
+    app.uLights = shaders.LIGHT_COLORS_UNIFORM_BLOCK.create(app.gl, proxy.state);
     app.gl.bindBufferBase(app.gl.UNIFORM_BUFFER, 3, app.uLights.__gpu);
-  });
+  }, [app, prev, options.lights, proxy]);
 
   // Creating/updating the particle 'system', it only depends on the 'count' option
   useEffect(function OnParticleCountChanges() {
@@ -159,6 +152,7 @@ export default ({ options, proxy }) => {
     if (app.particleProgram)
       app.particleProgram.dispose();
     app.particleProgram.use();
+    app.gl.uniform3fv(app.particleProgram.uDirections, app.uDirection);
   }, [app, proxy, options.particle]);
 
   // Anytime the object options changes, we update the unform buffer objects for
@@ -172,6 +166,7 @@ export default ({ options, proxy }) => {
       mat4.rotateX(app.uModel.transform[i](), app.uModel.transform[i](), object.rotation[0]);
       mat4.rotateZ(app.uModel.transform[i](), app.uModel.transform[i](), object.rotation[2]);
       mat4.scale(app.uModel.transform[i](), app.uModel.transform[i](), object.scale);
+      mat3.fromMat4(app.uModel.rotation[i](), app.uModel.transform[i]());
       app.uMaterial.diffuse[i](object.diffuse);
       app.uMaterial.specular[i](object.specular);
       app.uMaterial.highlight[i](object.highlight);
@@ -224,14 +219,13 @@ export default ({ options, proxy }) => {
     app.gl.uniform3fv(app.meshProgram.uDirections, app.uDirection);
     app.particleProgram.use();
     app.gl.uniform3fv(app.particleProgram.uDirections, app.uDirection);
-  }, [app, proxy, options.lights]);
+  }, [app, proxy, options.lights, options.objects.length]);
 
   // The render-loop
   utils.useDeltaAnimationFrame(60, dt => {
+    updateFps();
     const { gl } = app;
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-
-    updateFps();
 
     // Update the camera control etc
     updateMouse(dt);
@@ -267,6 +261,7 @@ export default ({ options, proxy }) => {
       gl.uniform1f(app.particleProgram.uDelta, dt / 60);
       gl.uniform1f(app.particleProgram.uRandom, Math.random() * 2 - 1);
       gl.uniform3fv(app.particleProgram.uDiffuse, proxy.state.particle.diffuse);
+      gl.uniform1f(app.particleProgram.uAlpha, proxy.state.particle.alpha);
       const index = app.particles.next();
       gl.bindVertexArray(app.particles.array[index]);
       gl.bindTransformFeedback(gl.TRANSFORM_FEEDBACK, app.particles.feedback[index]);
@@ -294,4 +289,14 @@ export default ({ options, proxy }) => {
       ]} />
     </Fragment>
   );
+};
+
+const hasLightsChanged = (ref, lights) => {
+  const prev = ref.current;
+  ref.current = lights;
+  if (!prev) return true;
+  if (prev.length !== lights.length) return true;
+  for (let i = 0; i < lights.length; i++)
+    if (lights[i].type !== prev[i].type) return true;
+  return false;;
 };

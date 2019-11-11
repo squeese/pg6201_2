@@ -17,7 +17,7 @@ export const loopLights = (lights, fn) => {
     if (POINT(light)) return fn(light, indexPnt++, indexVar++);
     if (SPOT(light)) return fn(light, indexSpt++, indexVar++);
     return "";
-  }).join("").trim();
+  }).join("\n").trim();
 };
 
 export const CAMERA_UNIFORM_BLOCK = () => `
@@ -38,11 +38,13 @@ export const MODEL_UNIFORM_BLOCK = ({ objects }) => `
 uniform int uModID;
 uniform Model {
   mat4 transform[${Math.max(1, objects.length)}];
+  mat3 rotation[${Math.max(1, objects.length)}];
 } uModel;
 `.trim();
 
 MODEL_UNIFORM_BLOCK.create = (gl, { objects }) => UBO.create(gl,
   UBO.array('transform', objects.length, UBO.mat4),
+  UBO.array('rotation', objects.length, UBO.mat3),
 );
 
 export const MATERIAL_UNIFORM_BLOCK = ({ objects }) => `
@@ -139,33 +141,20 @@ LIGHT_COLORS_UNIFORM_BLOCK.create = (gl, { lights }) => UBO.create(gl,
   ]),
 );
 
-const PARTICLE_BOX_LIGHT = i => `
-  pos4 = uLights.box[${i}].transform * vec4(vPosition, 1.0);
-  pos3 = pos4.xyz / pos4.w;
-  if (pos3.x > -1.0 && pos3.x < 1.0 && pos3.y > -1.0 && pos3.y < 1.0 && pos3.z > 0.0 && pos3.z < 1.0) {
-    color += uDiffuse * uLights.box[${i}].diffuse;
-  }
-`.trim();
-
-const PARTICLE_POINT_LIGHT = (i, j) => `
-  L = uDirections[${j}] - aPosition;
-  D = 1.0 / pow(length(L), uLights.point[${i}].attenuation);
-  color += uDiffuse * uLights.point[${i}].diffuse * D;
-`.trim();
-
-const BOX_LIGHT_COLOR_FUNCTION = ({ lights }) => !lights.filter(BOX).length ? '' : `
-vec3 boxLightColor(int lindex, vec3 N) {
+const BOX_OBJECT_LIGHT_COLOR_FUNCTION = ({ lights }) => !lights.filter(BOX).length ? '' : `
+vec3 boxLightColor(int lindex, vec3 N, vec3 V) {
   vec4 pos4 = uLights.box[lindex].transform * vec4(vPosition, 1.0);
   vec3 pos3 = pos4.xyz / pos4.w;
   vec3 color = vec3(0.0);
   if (pos3.x > -1.0 && pos3.x < 1.0 && pos3.y > -1.0 && pos3.y < 1.0 && pos3.z > 0.0 && pos3.z < 1.0) {
     vec3 L = uLights.box[lindex].direction;
-    color = diffuseColor(uLights.box[lindex].diffuse, N, L);
+    color += diffuseColor(uLights.box[lindex].diffuse, N, L);
+    color += specularColor(uLights.box[lindex].specular, N, L, V);
   }
   return color;
 }`;
 
-const DIRECTION_LIGHT_COLOR_FUNCTION = ({ lights }) => !lights.filter(DIRECTION).length ? '' : `
+const DIRECTION_OBJECT_LIGHT_COLOR_FUNCTION = ({ lights }) => !lights.filter(DIRECTION).length ? '' : `
 vec3 directionLightColor(int lindex, vec3 N, vec3 V) {
   vec3 L = uLights.direction[lindex].direction;
   vec3 color = vec3(0.0);
@@ -174,7 +163,7 @@ vec3 directionLightColor(int lindex, vec3 N, vec3 V) {
   return color;
 }`;
 
-const POINT_LIGHT_COLOR_FUNCTION = ({ lights }) => !lights.filter(POINT).length ? '' : `
+const POINT_OBJECT_LIGHT_COLOR_FUNCTION = ({ lights }) => !lights.filter(POINT).length ? '' : `
 vec3 pointLightColor(int lindex, int dindex, vec3 N, vec3 V) {
   vec3 L = normalize(vDirections[dindex]);
   float D = 1.0 / pow(length(vDirections[dindex]), uLights.point[lindex].attenuation);
@@ -184,7 +173,7 @@ vec3 pointLightColor(int lindex, int dindex, vec3 N, vec3 V) {
   return color * D;
 }`;
 
-const SPOT_LIGHT_COLOR_FUNCTION = ({ lights }) => !lights.filter(SPOT).length ? '' : `
+const SPOT_OBJECT_LIGHT_COLOR_FUNCTION = ({ lights }) => !lights.filter(SPOT).length ? '' : `
 vec3 spotLightColor(int lindex, int dindex, vec3 N, vec3 V) {
   vec3 L = normalize(vDirections[dindex]);
   float D = 1.0 / pow(length(vDirections[dindex]), uLights.spot[lindex].attenuation);
@@ -207,8 +196,9 @@ out vec3 vCamera;
 out vec3 vPosition;
 ${LIGHT_DIRECTIONS_VARYING('out', options)}
 void main() {
-  vNormal = aNormal;
   vCamera = uCamera.position - aPosition.xyz;
+  vNormal = mat3(uModel.transform[uModID]) * aNormal;
+  // vNormal = uModel.rotation[uModID] * aNormal;
   vec4 position = uModel.transform[uModID] * aPosition;
   vPosition = position.xyz;
   ${loop(options.lights.filter(POSITIONAL), i =>`
@@ -232,21 +222,52 @@ vec3 specularColor(vec3 color, vec3 N, vec3 L, vec3 V) {
   vec3 H = normalize(L + V);
   return uMaterial.specular[uMatID] * color * pow(clamp(dot(N, H), 0.0, 1.0), uMaterial.highlight[uMatID]);
 }
-${BOX_LIGHT_COLOR_FUNCTION(options)}
-${DIRECTION_LIGHT_COLOR_FUNCTION(options)}
-${POINT_LIGHT_COLOR_FUNCTION(options)}
-${SPOT_LIGHT_COLOR_FUNCTION(options)}
+${BOX_OBJECT_LIGHT_COLOR_FUNCTION(options)}
+${DIRECTION_OBJECT_LIGHT_COLOR_FUNCTION(options)}
+${POINT_OBJECT_LIGHT_COLOR_FUNCTION(options)}
+${SPOT_OBJECT_LIGHT_COLOR_FUNCTION(options)}
 void main() {
   vec3 color = vec3(0.0);
   vec3 N = normalize(vNormal);
   vec3 V = normalize(vCamera);
   ${loopLights(options.lights, (light, i, j) => {
-    if (BOX(light))       return `color += boxLightColor(${i}, N);`;
+    if (BOX(light))       return `color += boxLightColor(${i}, N, V);`;
     if (DIRECTION(light)) return `color += directionLightColor(${i}, N, V);`;
     if (POINT(light))     return `color += pointLightColor(${i}, ${j}, N, V);`;
     if (SPOT(light))      return `color += spotLightColor(${i}, ${j}, N, V);`;
   })}
   fragColor = vec4(color, 1.0);
+}`;
+
+const BOX_PARTICLE_LIGHT_COLOR_FUNCTION = ({ lights }) => !lights.filter(BOX).length ? '' : `
+vec3 boxLightColor(int lindex) {
+  vec4 pos4 = uLights.box[lindex].transform * vec4(aPosition, 1.0);
+  vec3 pos3 = pos4.xyz / pos4.w;
+  if (pos3.x > -1.0 && pos3.x < 1.0 && pos3.y > -1.0 && pos3.y < 1.0 && pos3.z > 0.0 && pos3.z < 1.0) {
+    return uDiffuse * uLights.box[lindex].diffuse;
+  }
+  return vec3(0.0);
+}`;
+
+const DIRECTION_PARTICLE_LIGHT_COLOR_FUNCTION = ({ lights }) => !lights.filter(DIRECTION).length ? '' : `
+vec3 directionLightColor(int lindex) {
+  return uDiffuse * uLights.direction[lindex].diffuse;
+}`;
+
+const POINT_PARTICLE_LIGHT_COLOR_FUNCTION = ({ lights }) => !lights.filter(POINT).length ? '' : `
+vec3 pointLightColor(int lindex, int dindex) {
+  vec3 l = uDirections[dindex] - aPosition;
+  float D = 1.0 / pow(length(l), uLights.point[lindex].attenuation);
+  return uDiffuse * uLights.point[lindex].diffuse * D;
+}`;
+
+const SPOT_PARTICLE_LIGHT_COLOR_FUNCTION = ({ lights }) => !lights.filter(SPOT).length ? '' : `
+vec3 spotLightColor(int lindex, int dindex) {
+  vec3 l = uDirections[dindex] - aPosition;
+  vec3 L = normalize(l);
+  float D = 1.0 / pow(length(l), uLights.spot[lindex].attenuation);
+  float C = pow(clamp(dot(L, normalize(uLights.spot[lindex].direction)), 0.0, 1.0), uLights.spot[lindex].angle);
+  return uDiffuse * uLights.spot[lindex].diffuse * D * C;
 }`;
 
 export const PARTICLE_VERTEX_SHADER = ({ particle, ...options }) => `#version 300 es
@@ -255,6 +276,7 @@ ${CAMERA_UNIFORM_BLOCK()}
 ${LIGHT_COLORS_UNIFORM_BLOCK(options)}
 ${LIGHT_DIRECTIONS_UNIFORM(options)}
 uniform vec3 uDiffuse;
+uniform float uAlpha;
 uniform float uDeltaTime;
 uniform float uRandom;
 layout(location=0) in vec3 aPosition;
@@ -273,6 +295,10 @@ vec3 randv(vec3 v, float m) {
 float randf(float v) {
   return fract(v * uRandom * 992.34502);
 }
+${BOX_PARTICLE_LIGHT_COLOR_FUNCTION(options)}
+${DIRECTION_PARTICLE_LIGHT_COLOR_FUNCTION(options)}
+${POINT_PARTICLE_LIGHT_COLOR_FUNCTION(options)}
+${SPOT_PARTICLE_LIGHT_COLOR_FUNCTION(options)}
 void main() {
   if (aLapsed > aDuration) {
     vPosition = randv(aPosition, 12.34) * ${particle.roomSize.floatString()};
@@ -291,17 +317,15 @@ void main() {
   gl_PointSize = ${particle.size.floatString()};
   gl_Position = uCamera.projection * uCamera.view * vec4(vPosition, 1.0);
   vec3 color = vec3(0.0);
-  vec3 L, pos3;
-  vec4 pos4;
-  float D;
   ${loopLights(options.lights, (light, i, j) => {
-    if (BOX(light)) return PARTICLE_BOX_LIGHT(i);
-    // if (DIRECTION(light)) return MESH_DIRECTION_LIGHT(i);
-    if (POINT(light)) return PARTICLE_POINT_LIGHT(i, j);
-    // if (SPOT(light)) return PARTICLE_SPOT_LIGHT(i, j);
-    return '';
+    if (BOX(light))       return `color += boxLightColor(${i});`;
+    if (DIRECTION(light)) return `color += directionLightColor(${i});`;
+    if (POINT(light))     return `color += pointLightColor(${i}, ${j});`;
+    if (SPOT(light))      return `color += spotLightColor(${i}, ${j});`;
   })}
-  vColor = vec4(color, ${particle.insideAlpha.floatString()});
+  float alphaEnter = min(vLapsed, 1.0);
+  float alphaExit = min(vDuration - vLapsed, 1.0);
+  vColor = vec4(color, uAlpha * alphaEnter * alphaExit);
 }`;
 
 export const PARTICLE_FRAGMENT_SHADER = () => `#version 300 es
@@ -311,61 +335,3 @@ out vec4 fragColor;
 void main() {
   fragColor = vColor;
 }`;
-
-
-
-// 
-    // vColor = vec4(color, alpha * min(aLapsed, 1.0) * min(aDuration - aLapsed, 1.0));
-// 
-//     float alpha = ${particle.outsideAlpha.floatString()};
-//     vec3 color = vec3(0.0);
-//     vec4 P0;
-//     vec3 P1;
-//     vec2 P2;
-//     float x;
-//     float y;
-//     ${loop(options.boxes, i => `
-//       P0 = uLights.boxes[${i}].transform * vec4(vPosition, 1.0);
-//       P1 = P0.xyz / P0.w;
-//       P2 = P1.xy * (0.4 / P1.z);
-//       /*
-//       x = max(1.0 + (max(abs(P1.x), 1.0) - 1.0) * -1.0, 0.0);
-//       y = max(1.0 + (max(abs(P1.y), 1.0) - 1.0) * -1.0, 0.0);
-//       alpha = x * y;
-//       */
-//       color += uLights.boxes[${i}].diffuse;
-//       // if (P1.x > -0.99 && P1.x < 0.99 && P1.y > -0.99 && P1.y < 0.99 && P1.z > 0.0 && P1.z < 0.99) {
-//         // alpha = ${particle.insideAlpha.floatString()};
-//       // }
-//       if (P2.x > -0.99 && P2.x < 0.99 && P2.y > -0.99 && P2.y < 0.99) {
-//         alpha = ${particle.insideAlpha.floatString()};
-//       }
-//     `)}
-
-
-//   finalAmbient += uLights.points[${i}].ambient;
-//   L = normalize(vPointLightDirections[${i}]);
-//   D = 1.0 / length(vPointLightDirections[${i}]);
-//   finalDiffuse += diffuseColor * uLights.points[${i}].diffuse * max(dot(N, L), 0.0) * D;
-
-// ${loop(options.points, i => `
-//   finalAmbient += uLights.points[${i}].ambient;
-//   L = normalize(vPointLightDirections[${i}]);
-//   D = 1.0 / length(vPointLightDirections[${i}]);
-//   finalDiffuse += diffuseColor * uLights.points[${i}].diffuse * max(dot(N, L), 0.0) * D;
-//   H = normalize(L + V);
-//   finalSpecular += specularColor * uLights.points[${i}].specular * pow(clamp(dot(N, H), 0.0, 1.0), uLights.points[${i}].highlight) * D;
-// `)}
-
-// vec4 P0;
-// vec3 P1;
-// ${loop(options.boxes, i => `
-//   P0 = uLights.boxes[${i}].transform * vec4(vPosition, 1.0);
-//   P1 = P0.xyz / P0.w;
-//   if (P1.x >= -1.0 && P1.x <= 1.0 && P1.y >= -1.0 && P1.y <= 1.0 && P1.z >= 0.0 && P1.z <= 1.0) {
-//     L = uLights.boxes[${i}].direction;
-//     finalDiffuse += diffuseColor * uLights.boxes[${i}].diffuse * max(dot(N, L), 0.0);
-//     // H = normalize(L + V);
-//     // finalSpecular += specularColor * uLights.boxes[${i}].specular * pow(clamp(dot(N, H), 0.0, 1.0), 1.0);
-//   }
-// `)}
