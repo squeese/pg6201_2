@@ -15,7 +15,7 @@
     "count": 500000,
     "minDuration": 1,
     "maxDuration": 2,
-    "size": 1,
+    "size": 1.5,
     "roomSize": 4,
     "speed": 0.001,
     "scale": false,
