@@ -24,6 +24,7 @@ export const CAMERA_UNIFORM_BLOCK = () => `
 uniform Camera {
   mat4 projection;
   mat4 view;
+  mat4 viewProjection;
   vec3 position;
 } uCamera;
 `.trim();
@@ -31,7 +32,8 @@ uniform Camera {
 CAMERA_UNIFORM_BLOCK.create = gl => UBO.create(gl,
   UBO.mat4('projection'),
   UBO.mat4('view'),
-  UBO.vec4('position')
+  UBO.mat4('viewProjection'),
+  UBO.vec4('position'),
 );
 
 export const MODEL_UNIFORM_BLOCK = ({ objects }) => `
@@ -319,7 +321,8 @@ void main() {
   gl_PointSize = ${particle.size.floatString()} / VL;
   `:`
   gl_PointSize = ${particle.size.floatString()};`}
-  gl_Position = uCamera.projection * uCamera.view * vec4(vPosition, 1.0);
+  // gl_Position = uCamera.projection * uCamera.view * vec4(vPosition, 1.0);
+  gl_Position = uCamera.viewProjection * vec4(vPosition, 1.0);
   vec3 color = vec3(0.0);
   ${loopLights(options.lights, (light, i, j) => {
     if (BOX(light))       return `color += boxLightColor(${i});`;
@@ -338,4 +341,29 @@ in vec4 vColor;
 out vec4 fragColor;
 void main() {
   fragColor = vColor;
+}`;
+
+export const BLUR_VERTEX_SHADER = () => `#version 300 es
+layout(location=0) in vec4 aPosition;
+void main() {
+  gl_Position = aPosition;
+}`;
+
+export const BLUR_FRAGMENT_SHADER = () => `#version 300 es
+precision mediump float;
+uniform sampler2D uColor;
+uniform sampler2D uDepth;
+out vec4 fragColor;
+void main() {
+  ivec2 fragCoord = ivec2(gl_FragCoord.xy);
+  vec4 color = vec4(0.0);
+  // float depth = texelFetch(uDepth, fragCoord, 0).r;
+  color += texelFetch(uColor, ivec2(fragCoord.x - 3, fragCoord.y), 0) * 0.1;
+  color += texelFetch(uColor, ivec2(fragCoord.x - 2, fragCoord.y), 0) * 0.2;
+  color += texelFetch(uColor, ivec2(fragCoord.x - 1, fragCoord.y), 0) * 0.3;
+  color += texelFetch(uColor, fragCoord, 0) * 0.4;
+  color += texelFetch(uColor, ivec2(fragCoord.x - 1, fragCoord.y), 0) * 0.3;
+  color += texelFetch(uColor, ivec2(fragCoord.x - 2, fragCoord.y), 0) * 0.2;
+  color += texelFetch(uColor, ivec2(fragCoord.x - 3, fragCoord.y), 0) * 0.1;
+  fragColor = color;
 }`;

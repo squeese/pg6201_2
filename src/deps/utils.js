@@ -105,6 +105,7 @@ export const useMouseCamera = (app, canvas) => {
     vec3.transformQuat(ref.upwards, [0, 1, 0], ref.rotation);
     mat4.lookAt(app.uCamera.view(), app.uCamera.position(), [0, 0, 0], ref.upwards);
     mat4.perspective(app.uCamera.projection(), ref.fov, window.innerWidth/window.innerHeight, 0.1, 100);
+    mat4.multiply(app.uCamera.viewProjection(), app.uCamera.projection(), app.uCamera.view());
   }, [app, ref, proxy]);
 };
 

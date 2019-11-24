@@ -6,6 +6,7 @@ import Source from './deps/Source';
 import * as utils from './deps/utils';
 import * as shaders from './Shaders';
 import * as particles from './Particles';
+import * as blur from './Blur';
 
 export default ({ options, proxy }) => {
   const app = useRef({}).current;
@@ -34,6 +35,7 @@ export default ({ options, proxy }) => {
     app.boxMeshInverted = utils.createGenericMesh(gl, utils.createFlatCubeMesh(1, true));
     app.suzanneMesh = utils.createGenericMesh(gl, suzanne);
     app.particles = null;
+    app.blur = blur.createBlur(gl);
 
     // Uniform Buffer Objects
     // Same deal here, only the camera buffer will stay the same.
@@ -102,6 +104,14 @@ export default ({ options, proxy }) => {
         this.uRandom = gl.getUniformLocation(program, 'uRandom');
         this.uDiffuse = gl.getUniformLocation(program, 'uDiffuse');
         this.uAlpha = gl.getUniformLocation(program, 'uAlpha');
+      },
+    });
+    app.blurProgram = utils.createGenericProgram(gl, {
+      vert: () => shaders.BLUR_VERTEX_SHADER(proxy.state),
+      frag: () => shaders.BLUR_FRAGMENT_SHADER(proxy.state),
+      after(program) {
+        this.uColor = app.gl.getUniformLocation(program, 'uColor');
+        this.uDelpth = gl.getUniformLocation(program, 'uDepth');
       },
     });
   }, [app, canvas, proxy]);
@@ -225,12 +235,14 @@ export default ({ options, proxy }) => {
   utils.useDeltaAnimationFrame(60, dt => {
     updateFps();
     const { gl } = app;
-    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
     // Update the camera control etc
     updateMouse(dt);
     gl.bindBuffer(gl.UNIFORM_BUFFER, app.uCamera.__gpu);
     gl.bufferSubData(gl.UNIFORM_BUFFER, 0, app.uCamera.__cpu);
+
+    // gl.bindFramebuffer(gl.FRAMEBUFFER, app.blur.renderBuffer);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
     // Render objects in the scene
     app.meshProgram.use();
@@ -273,6 +285,13 @@ export default ({ options, proxy }) => {
       if (!proxy.state.particle.depth) gl.enable(gl.DEPTH_TEST);
       gl.endTransformFeedback();
     }
+
+    // gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    // app.blurProgram.use();
+    // gl.bindVertexArray(app.blur.vertexArray);
+    // gl.uniform1i(app.blurProgram.uColor, 1);
+    // gl.uniform1i(app.blurProgram.uDepth, 2);
+    // gl.drawArrays(gl.TRIANGLES, 0, 6);
   });
 
   return (

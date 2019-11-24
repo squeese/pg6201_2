@@ -1,6 +1,12 @@
-import React, { Fragment, cloneElement, useRef, useState } from 'react';
+import React, { Fragment, useEffect, cloneElement, useRef, useState, useContext } from 'react';
 import { createBrowserHistory } from 'history';
 import styled from 'styled-components';
+import { Context } from './Options';
+
+const session = name => {
+  const json = window.sessionStorage.getItem(name);
+  return json && JSON.parse(json);
+};
 
 const PRESETS = {
   suzannewindow: {
@@ -18,6 +24,11 @@ const PRESETS = {
     button: 'Suzanne in Pointlight',
     description: 'Scene contains one two PointLights and a LightBox shining down on suzanne',
   },
+  session: {
+    json: session('session'),
+    button: 'sessionStorage',
+    description: '',
+  },
   empty: {
     json: null,
     button: 'Empty Scene',
@@ -32,11 +43,23 @@ const list = Object.keys(PRESETS).map(key => {
 
 const loadConfig = location => {
   const key = location.search.slice(1);
-  if (key === 'memory')
-    return JSON.parse(window.sessionStorage.getItem("preset"));
   return PRESETS.hasOwnProperty(key) ? PRESETS[key] : PRESETS.suzannewindow;
 };
 
+export const SaveSession = () => {
+  const history = useRef(createBrowserHistory());
+  const { state } = useContext(Context);
+  useEffect(() => {
+    if (history.current.location.search.slice(1) !== 'session') return;
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      window.sessionStorage.setItem('session', JSON.stringify(state));
+    }, 250);
+  }, [state, history.current.location.search]);
+  return null;
+};
+
+let timer;
 export default ({ children }) => {
   const history = useRef(createBrowserHistory());
   const [preset, setPreset] = useState(loadConfig(history.current.location));
@@ -45,7 +68,6 @@ export default ({ children }) => {
     else history.current.push("");
     setPreset(loadConfig(history.current.location));
   };
-
   return (
     <Fragment>
       <Container>

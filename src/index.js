@@ -2,7 +2,7 @@ import React from 'react';
 import { render } from 'react-dom';
 import { createGlobalStyle } from 'styled-components';
 import * as Options from './deps/Options';
-import Presets from './deps/Presets';
+import Presets, { SaveSession } from './deps/Presets';
 import GUI from './GUI';
 import App from './App';
 
@@ -34,6 +34,7 @@ render((
       <Options.Context.Consumer>
         {({ ready, state, proxy }) => ready && <App options={state} proxy={proxy} />}
       </Options.Context.Consumer>
+      <SaveSession />
     </Options.Provider>
   </Presets>),
   document.getElementById('root'));

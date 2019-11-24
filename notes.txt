@@ -55,4 +55,4 @@ Notes regarding the exam problems
 
   So, I chose to take the nebulous road down all in webgl2, mostly because I really
   really wanted to try two things, transform feedback and uniform buffer objects,
-  which I got todo. (note, I havent had this much fun in a looong time =)
+  which I got todo. funfun =)
