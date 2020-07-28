@@ -1,18 +1,19 @@
+# Introduction
 Graphics Programming Exam (PG6201 #2)
 Kristiania University College, November 2019.
 [View result here](https://lennarthansen.dev/particles/live)
 
-#Build the project
+# Build the project
 * yarn install          (or npm)
 * yarn build            (or 'start' to run the development build/server)
 
-#Running the application
+# Running the application
 To run this project (exam), serve the files in the build folder with any http-server.
 With nodejs that could be either of these when in the project folder
 * serve -s build
 * http-server build
 
-#Using the application
+# Using the application
 Mousedown + drag to rotate the scene/camera.
 Mousewheel to zoom in and out.
 Up to the right there are four buttons to toggle a view of the current compiled
@@ -25,12 +26,12 @@ In particular the option 'Count' in the particles section is to change the amoun
 of particles to render in the scene. (Task 4).
 Bottom right is a basic FPS counter.
 
-##Compatability notes
+## Compatability notes
 This exam was built with webgl2, so it wont work properly (in my case, not at all)
 on the safari browser. But I tested myself chrome and firefox (mac) and it worked
 the way I intended on those.
 
-##Notes regarding the exam problems
+## Notes regarding the exam problems
 I'll start off with the explaining fact that I chose to program this exam almost
 purely webgl as opposed to ThreeJS. (I use threejs' matrix to calculate shear)
 In Task 4 it says: "The most obvious optimization would be to move the per-particle
