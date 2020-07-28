@@ -1,6 +1,6 @@
-# Introduction
 Graphics Programming Exam (PG6201 #2)
 Kristiania University College, November 2019.
+
 [View result here](https://lennarthansen.dev/particles/live)
 
 # Build the project
